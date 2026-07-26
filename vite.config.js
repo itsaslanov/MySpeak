@@ -16,6 +16,16 @@ export default ({ mode }) => {
           ws: true
         }
       }
+    },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            "agora": ["agora-rtc-sdk-ng"],
+            "vendor": ["react", "react-dom", "react-router-dom", "socket.io-client"]
+          }
+        }
+      }
     }
   });
 };

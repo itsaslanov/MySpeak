@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { io } from "socket.io-client";
-import { Lock, LogOut, Plus, Radio, Trash2, Users } from "lucide-react";
+import { Globe, Lock, LogOut, Plus, Radio, Shield, Trash2, Users } from "lucide-react";
 import { getAdminToken, request, setAdminToken, SOCKET_URL } from "../lib/api.js";
 
 export default function AdminPage() {
@@ -10,6 +11,7 @@ export default function AdminPage() {
   const [groups, setGroups] = useState([]);
   const [groupName, setGroupName] = useState("");
   const [maxUsers, setMaxUsers] = useState(30);
+  const [passcode, setPasscode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -19,14 +21,10 @@ export default function AdminPage() {
   }
 
   useEffect(() => {
-    if (!token) {
-      return undefined;
-    }
-
+    if (!token) return undefined;
     loadGroups().catch((err) => setError(err.message));
     const socket = io(SOCKET_URL, { transports: ["websocket", "polling"] });
     socket.on("groups:update", (nextGroups) => setGroups(nextGroups || []));
-
     return () => socket.disconnect();
   }, [token]);
 
@@ -34,7 +32,6 @@ export default function AdminPage() {
     event.preventDefault();
     setBusy(true);
     setError("");
-
     try {
       const response = await request("/api/admin/login", {
         method: "POST",
@@ -57,23 +54,17 @@ export default function AdminPage() {
 
   async function handleCreateGroup(event) {
     event.preventDefault();
-    if (!groupName.trim()) {
-      return;
-    }
-
+    if (!groupName.trim()) return;
     setBusy(true);
     setError("");
-
     try {
       await request("/api/groups", {
         method: "POST",
         token,
-        body: {
-          name: groupName,
-          maxUsers
-        }
+        body: { name: groupName, maxUsers, passcode }
       });
       setGroupName("");
+      setPasscode("");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -84,12 +75,8 @@ export default function AdminPage() {
   async function handleDeleteGroup(groupId) {
     setBusy(true);
     setError("");
-
     try {
-      await request(`/api/groups/${groupId}`, {
-        method: "DELETE",
-        token
-      });
+      await request(`/api/groups/${groupId}`, { method: "DELETE", token });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -99,188 +86,193 @@ export default function AdminPage() {
 
   if (!token) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-950 p-4 text-slate-100">
-        <form
-          onSubmit={handleLogin}
-          className="w-full max-w-sm rounded-[28px] border border-slate-800 bg-slate-900 p-6 shadow-sm"
-        >
-          <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-full bg-sky-500 text-white">
-            <Lock size={21} aria-hidden="true" />
-          </div>
-          <h1 className="text-xl font-semibold text-slate-100">Admin sign in</h1>
-          <p className="mt-2 text-sm leading-6 text-slate-400">Create and close voice groups.</p>
-
-          {error && (
-            <div className="mt-4 rounded-2xl border border-fuchsia-700 bg-fuchsia-900/50 px-3 py-2 text-sm text-fuchsia-100">
-              {error}
+      <main className="flex min-h-screen items-center justify-center p-3 sm:p-4">
+        <form onSubmit={handleLogin} className="w-full max-w-sm animate-scale-in">
+          <div className="glass-card p-6 sm:p-8">
+            <div className="mb-4 flex h-9 w-9 items-center justify-center rounded-lg bg-surface-3 sm:mb-6 sm:h-11 sm:w-11">
+              <Shield size={18} className="text-zinc-400 sm:text-zinc-400" />
             </div>
-          )}
+            <h1 className="text-base font-semibold text-zinc-100 sm:text-lg">Admin sign in</h1>
+            <p className="mt-1 text-xs text-zinc-500 sm:mt-1.5 sm:text-sm">Manage voice rooms.</p>
 
-          <label className="mt-5 block text-sm font-medium text-slate-300" htmlFor="email">
-            Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="admin@example.com"
-            className="mt-2 h-11 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
-          />
+            {error && (
+              <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-400 sm:mt-4">
+                {error}
+              </div>
+            )}
 
-          <label className="mt-4 block text-sm font-medium text-slate-300" htmlFor="password">
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className="mt-2 h-11 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
-          />
+            <div className="mt-4 space-y-3 sm:mt-6">
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-zinc-400">Email</label>
+                <input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="admin@example.com"
+                  className="glass-input h-9 w-full px-3 text-sm sm:h-10"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-zinc-400">Password</label>
+                <input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="glass-input h-9 w-full px-3 text-sm sm:h-10"
+                />
+              </div>
+            </div>
 
-          <button
-            type="submit"
-            disabled={busy || !email.trim() || !password}
-            className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-2xl bg-sky-600 px-4 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-800"
-          >
-            Sign in
-          </button>
+            <button
+              type="submit"
+              disabled={busy || !email.trim() || !password}
+              className="btn-primary mt-4 flex h-9 w-full items-center justify-center gap-1.5 text-xs sm:mt-5 sm:h-10"
+            >
+              <Lock size={13} />
+              Sign in
+            </button>
+          </div>
         </form>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-5 sm:px-6 lg:px-8">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
-          <div>
-            <div className="flex items-center gap-2 text-sm font-semibold text-sky-400">
-              <Radio size={18} aria-hidden="true" />
-              MySpeak Admin
+    <main className="min-h-screen">
+      <div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-5 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
+        <header className="flex items-center justify-between pb-3 sm:pb-5">
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-3 sm:h-8 sm:w-8">
+              <Radio size={13} className="text-zinc-400" />
             </div>
-            <h1 className="mt-2 text-2xl font-semibold text-slate-100">Group control</h1>
+            <h1 className="text-sm font-semibold text-zinc-100 sm:text-base">Admin</h1>
           </div>
-          <div className="flex items-center gap-2">
-            <a
-              href="/"
-              className="inline-flex h-10 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900 px-4 text-sm font-semibold text-slate-100 transition hover:border-slate-700"
-            >
-              Website
-            </a>
+          <div className="flex items-center gap-1.5">
+            <Link to="/" className="btn-secondary flex h-8 items-center gap-1.5 px-2.5 text-xs">
+              <Globe size={12} />
+              <span className="hidden sm:inline">Site</span>
+            </Link>
             <button
               type="button"
               onClick={handleLogout}
-              title="Sign out"
-              className="inline-flex h-10 items-center gap-2 rounded-lg bg-slate-900 px-4 text-sm font-semibold text-slate-100 transition hover:bg-slate-800"
+              className="btn-secondary flex h-8 items-center gap-1.5 px-2.5 text-xs"
             >
-              <LogOut size={17} aria-hidden="true" />
-              Sign out
+              <LogOut size={12} />
+              <span className="hidden sm:inline">Sign out</span>
             </button>
           </div>
         </header>
 
-        <section className="grid gap-5 py-6 lg:grid-cols-[360px_1fr]">
-          <form
-            onSubmit={handleCreateGroup}
-            className="h-fit rounded-3xl border border-slate-800 bg-slate-900 p-4 shadow-sm"
-          >
-            <h2 className="text-base font-semibold text-slate-100">Create group</h2>
-            <label className="mt-4 block text-sm font-medium text-slate-300" htmlFor="group-name">
-              Name
-            </label>
-            <input
-              id="group-name"
-              value={groupName}
-              onChange={(event) => setGroupName(event.target.value)}
-              maxLength={50}
-              placeholder="General voice"
-              className="mt-2 h-11 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
-            />
-
-            <label className="mt-4 block text-sm font-medium text-slate-300" htmlFor="max-users">
-              Max users
-            </label>
-            <input
-              id="max-users"
-              type="number"
-              min="2"
-              max="200"
-              value={maxUsers}
-              onChange={(event) => setMaxUsers(event.target.value)}
-              className="mt-2 h-11 w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 text-sm text-slate-100 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
-            />
-
+        <section className="grid gap-4 py-2 lg:grid-cols-[320px_1fr] lg:gap-5">
+          <form onSubmit={handleCreateGroup} className="glass-card h-fit p-3 sm:p-4">
+            <h2 className="text-xs font-semibold text-zinc-300">Create room</h2>
+            <div className="mt-3 space-y-3 sm:mt-4">
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-zinc-400" htmlFor="group-name">Name</label>
+                <input
+                  id="group-name"
+                  value={groupName}
+                  onChange={(e) => setGroupName(e.target.value)}
+                  maxLength={50}
+                  placeholder="General voice"
+                  className="glass-input h-9 w-full px-3 text-sm sm:h-10"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-zinc-400" htmlFor="max-users">Max users</label>
+                <input
+                  id="max-users"
+                  type="number"
+                  min="2"
+                  max="200"
+                  value={maxUsers}
+                  onChange={(e) => setMaxUsers(e.target.value)}
+                  className="glass-input h-9 w-full px-3 text-sm sm:h-10"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-zinc-400" htmlFor="passcode">Passcode (optional)</label>
+                <input
+                  id="passcode"
+                  value={passcode}
+                  onChange={(e) => setPasscode(e.target.value)}
+                  maxLength={20}
+                  placeholder="Leave empty for open room"
+                  className="glass-input h-9 w-full px-3 text-sm sm:h-10"
+                />
+              </div>
+            </div>
             <button
               type="submit"
               disabled={busy || !groupName.trim()}
-              className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-sky-600 px-4 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-800"
+              className="btn-primary mt-3 flex h-9 w-full items-center justify-center gap-1.5 text-xs sm:mt-4 sm:h-10"
             >
-              <Plus size={17} aria-hidden="true" />
+              <Plus size={13} />
               Create
             </button>
           </form>
 
           <div>
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <h2 className="text-base font-semibold text-slate-100">Live groups</h2>
-              <span className="text-sm text-slate-400">{groups.length} total</span>
+            <div className="mb-3 flex items-center justify-between sm:mb-4">
+              <h2 className="text-xs font-semibold text-zinc-300">Live rooms</h2>
+              <span className="text-[11px] text-zinc-600">{groups.length} total</span>
             </div>
 
             {groups.length ? (
-              <div className="grid gap-3">
-                {groups.map((group) => (
-                  <article
+              <div className="grid gap-1.5 sm:gap-2">
+                {groups.map((group, i) => (
+                  <div
                     key={group.id}
-                    className="rounded-3xl border border-slate-800 bg-slate-900 p-4 shadow-sm"
+                    className={`glass-card p-3.5 opacity-0 animate-slide-up stagger-${Math.min(i + 1, 6)} sm:p-4`}
+                    style={{ animationFillMode: "forwards" }}
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <h3 className="truncate text-base font-semibold text-slate-100">
-                          {group.name}
-                        </h3>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex h-9 items-center gap-1 rounded-2xl bg-slate-800 px-2 text-xs font-semibold text-slate-300">
-                          <Users size={14} aria-hidden="true" />
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="text-xs font-semibold text-zinc-100 sm:text-sm">{group.name}</h3>
+                        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-zinc-500">
+                          <Users size={10} />
                           {group.count}/{group.maxUsers}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteGroup(group.id)}
-                          disabled={busy}
-                          title="Delete group"
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-slate-700 bg-slate-800 text-slate-200 transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          <Trash2 size={16} aria-hidden="true" />
-                        </button>
+                          {group.count > 0 && <span className="text-emerald-500">active</span>}
+                          {group.hasPasscode && <Lock size={9} className="text-zinc-600" />}
+                        </div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteGroup(group.id)}
+                        disabled={busy}
+                        title="Delete"
+                        className="btn-danger flex h-7 w-7 items-center justify-center !rounded-md p-0"
+                      >
+                        <Trash2 size={12} />
+                      </button>
                     </div>
 
-                    <div className="mt-4 flex flex-wrap gap-2">
+                    <div className="mt-2 flex flex-wrap gap-1">
                       {group.participants.length ? (
-                        group.participants.map((participant) => (
+                        group.participants.map((p) => (
                           <span
-                            key={participant.socketId}
-                            className="max-w-[10rem] truncate rounded-2xl bg-slate-800 px-2 py-1 text-xs font-medium text-slate-300"
+                            key={p.socketId}
+                            className="inline-flex items-center gap-1 rounded bg-surface-3 px-1.5 py-0.5 text-[10px] text-zinc-500"
                           >
-                            {participant.displayName}
+                            <span className="h-1 w-1 rounded-full bg-emerald-500" />
+                            {p.displayName}
                           </span>
                         ))
                       ) : (
-                        <span className="text-sm text-slate-400">Empty</span>
+                        <span className="text-[11px] text-zinc-600">Empty</span>
                       )}
                     </div>
-                  </article>
+                  </div>
                 ))}
               </div>
             ) : (
-              <div className="rounded-[28px] border border-dashed border-slate-800 bg-slate-900 p-8 text-center">
-                <Users className="mx-auto text-slate-400" size={34} aria-hidden="true" />
-                <h3 className="mt-4 text-lg font-semibold text-slate-100">No groups yet</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-400">
-                  Create the first group and users will see it on the website instantly.
+              <div className="glass-card p-6 text-center animate-fade-in sm:p-10">
+                <Users className="mx-auto text-zinc-600" size={24} />
+                <h3 className="mt-3 text-sm font-semibold text-zinc-200">No rooms yet</h3>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Create a room and users will see it instantly.
                 </p>
               </div>
             )}
