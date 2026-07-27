@@ -291,6 +291,15 @@ async function saveAdminCredentials(username, password) {
   return true;
 }
 
+async function countAdminRows() {
+  if (!supabase) return 0;
+  const { count, error } = await supabase
+    .from(supabaseAdminTable)
+    .select("admin_user", { count: "exact", head: true });
+  if (error) return 0;
+  return count || 0;
+}
+
 async function validateAdminLogin(username, password) {
   if (!username || !password) {
     return false;
@@ -300,6 +309,14 @@ async function validateAdminLogin(username, password) {
     const row = await getSupabaseAdminRow(username);
     if (row && verifyPassword(password, row.passwordHash)) {
       return true;
+    }
+
+    if (!row) {
+      const adminCount = await countAdminRows();
+      if (adminCount === 0) {
+        await saveAdminCredentials(username, password);
+        return true;
+      }
     }
   }
 
