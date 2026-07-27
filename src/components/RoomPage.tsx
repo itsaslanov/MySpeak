@@ -2,22 +2,23 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { io } from "socket.io-client";
 import { AlertCircle } from "lucide-react";
-import { request, SOCKET_URL, hasRoomAccess, grantRoomAccess, revokeRoomAccess, getRoomPasscode } from "../lib/api.js";
-import CallRoom from "./CallRoom.jsx";
+import { request, SOCKET_URL, hasRoomAccess, grantRoomAccess, revokeRoomAccess, getRoomPasscode } from "../lib/api";
+import type { Group, Config } from "../types";
+import CallRoom from "./CallRoom";
 
 export default function RoomPage() {
-  const { id } = useParams();
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [group, setGroup] = useState(null);
+  const [group, setGroup] = useState<Group | null>(null);
   const [passcode, setPasscode] = useState("");
-  const [config, setConfig] = useState({ agoraAppId: "", tokenEnabled: false });
+  const [config, setConfig] = useState<Config>({ agoraAppId: "", tokenEnabled: false });
   const [displayName, setDisplayName] = useState(
     () => localStorage.getItem("myspeak:display-name") || ""
   );
   const [userAvatar] = useState(
     () => localStorage.getItem("myspeak:avatar") || "😀"
   );
-  const [socket, setSocket] = useState(null);
+  const [socket, setSocket] = useState<ReturnType<typeof io> | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -33,8 +34,8 @@ export default function RoomPage() {
     async function load() {
       try {
         const [configData, groupsData] = await Promise.all([
-          request("/api/config"),
-          request("/api/groups")
+          request<Config>("/api/config"),
+          request<{ groups: Group[] }>("/api/groups")
         ]);
         setConfig(configData);
 
@@ -44,16 +45,16 @@ export default function RoomPage() {
           return;
         }
 
-        if (!hasRoomAccess(id) && found.hasPasscode) {
+        if (!hasRoomAccess(id!) && found.hasPasscode) {
           setError("You need to join this room from the home page.");
           return;
         }
 
-        grantRoomAccess(id);
+        grantRoomAccess(id!);
         setGroup((prev) => prev || found);
-        setPasscode(window.history.state?.usr?.passcode || getRoomPasscode(id));
+        setPasscode((window.history.state as { usr?: { passcode?: string } })?.usr?.passcode || getRoomPasscode(id!));
       } catch (err) {
-        setError(err.message);
+        setError((err as Error).message);
       } finally {
         setLoading(false);
       }
@@ -68,17 +69,17 @@ export default function RoomPage() {
 
   useEffect(() => {
     if (!socket || !group) return;
-    function onUpdate(next) {
-      if (next?.id === group.id) {
+    function onUpdate(next: Group) {
+      if (next?.id === group!.id) {
         setGroup(next);
       }
     }
     socket.on("groups:update", onUpdate);
-    return () => socket.off("groups:update", onUpdate);
+    return () => { socket.off("groups:update", onUpdate); };
   }, [socket, group?.id]);
 
   function handleLeave() {
-    revokeRoomAccess(id);
+    revokeRoomAccess(id!);
     navigate("/", { replace: true });
   }
 
@@ -86,9 +87,9 @@ export default function RoomPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-3">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-600 border-t-zinc-300" />
+      <div className="flex min-h-[100dvh] items-center justify-center">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-surface-3">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-600 border-t-zinc-300" />
         </div>
       </div>
     );
@@ -96,14 +97,14 @@ export default function RoomPage() {
 
   if (error) {
     return (
-      <div className="flex min-h-screen items-center justify-center p-4">
+      <div className="flex min-h-dvh items-center justify-center p-4">
         <div className="glass-card max-w-sm p-6 text-center">
           <AlertCircle className="mx-auto text-red-400" size={24} />
-          <h2 className="mt-3 text-sm font-semibold text-zinc-200">{error}</h2>
+          <h2 className="mt-3 text-[15px] sm:text-sm font-semibold text-zinc-200">{error}</h2>
           <button
             type="button"
-            onClick={() => { revokeRoomAccess(id); navigate("/"); }}
-            className="btn-primary mt-4 flex h-9 mx-auto items-center gap-1.5 px-4 text-xs"
+            onClick={() => { revokeRoomAccess(id!); navigate("/"); }}
+            className="btn-primary mt-4 flex h-10 mx-auto items-center gap-1.5 px-4 text-[13px] sm:text-xs"
           >
             Back to rooms
           </button>

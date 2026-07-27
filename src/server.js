@@ -91,6 +91,7 @@ function normalizePasscode(passcode) {
 
 function createGroup({ name, maxUsers, passcode }) {
   const id = createId("grp");
+  const maxOrder = Array.from(groups.values()).reduce((max, g) => Math.max(max, g.order || 0), 0);
   const group = {
     id,
     name: normalizeGroupName(name),
@@ -98,6 +99,7 @@ function createGroup({ name, maxUsers, passcode }) {
     maxUsers: Math.min(Math.max(Number(maxUsers) || 30, 2), 200),
     passcode: normalizePasscode(passcode),
     createdAt: new Date().toISOString(),
+    order: maxOrder + 1,
     participants: new Map()
   };
 
@@ -117,6 +119,7 @@ function serializeGroup(group) {
     maxUsers: group.maxUsers,
     hasPasscode: Boolean(group.passcode),
     createdAt: group.createdAt,
+    order: group.order ?? 0,
     count: participants.length,
     isFull: participants.length >= group.maxUsers,
     participants
@@ -126,7 +129,7 @@ function serializeGroup(group) {
 function serializeGroups() {
   return Array.from(groups.values())
     .map(serializeGroup)
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.createdAt.localeCompare(b.createdAt));
 }
 
 function broadcastGroups() {
@@ -162,9 +165,11 @@ async function loadGroupsFromStore() {
       maxUsers: Number(row.maxUsers ?? row.maxusers) || 30,
       passcode: row.passcode || "",
       createdAt: row.createdAt || row.createdat || new Date().toISOString(),
+      order: Number(row.order ?? row.sort_order ?? 0),
       participants: new Map()
     });
   }
+  console.log(`Loaded ${groups.size} groups from Supabase.`);
 }
 
 async function persistGroup(group) {
@@ -176,16 +181,34 @@ async function persistGroup(group) {
   const payload = {
     id: Number.isFinite(numericId) ? numericId : group.id,
     name: group.name,
-    channelName: group.channelName,
-    maxUsers: group.maxUsers,
+    channelname: group.channelName,
+    maxusers: group.maxUsers,
     passcode: group.passcode || "",
-    createdAt: group.createdAt
+    createdat: group.createdAt,
+    "order": group.order ?? 0
   };
 
   const { error } = await supabase.from(supabaseTable).upsert([payload]);
 
   if (error) {
     console.error("Supabase persist group error:", error.message || error);
+    console.error("Group table:", supabaseTable, "groupId:", group.id);
+  } else {
+    console.log(`Supabase persisted group: ${group.name} (${group.id})`);
+  }
+}
+
+async function updateGroupRecord(groupId, updates) {
+  if (!supabase) {
+    return;
+  }
+
+  const numericId = Number(groupId);
+  const targetId = Number.isFinite(numericId) ? numericId : groupId;
+  const { error } = await supabase.from(supabaseTable).update(updates).eq("id", targetId);
+
+  if (error) {
+    console.error("Supabase update group error:", error.message || error);
   }
 }
 
@@ -304,7 +327,10 @@ async function deleteGroupRecord(groupId) {
 }
 
 async function loadChatFromStore() {
-  if (!supabase) return;
+  if (!supabase) {
+    console.log("No Supabase configured, skipping chat load.");
+    return;
+  }
 
   const { data, error } = await supabase
     .from(supabaseChatTable)
@@ -326,24 +352,30 @@ async function loadChatFromStore() {
       id: String(row.id || ""),
       displayName: row.display_name || "",
       text: row.text || "",
-      timestamp: row.timestamp || new Date().toISOString()
+      timestamp: row.timestamp || new Date().toISOString(),
+      system: !!row.system,
+      type: row.type || undefined
     });
   }
+  console.log(`Loaded ${(data || []).length} chat messages from Supabase.`);
 }
 
 async function persistChatMessage(groupId, msg) {
   if (!supabase) return;
 
-  const { error } = await supabase.from(supabaseChatTable).insert([{
+  const { error } = await supabase.from(supabaseChatTable).upsert([{
     id: msg.id,
     group_id: groupId,
     display_name: msg.displayName,
     text: msg.text,
-    timestamp: msg.timestamp
-  }]);
+    timestamp: msg.timestamp,
+    system: !!msg.system,
+    type: msg.type || null
+  }], { onConflict: "id" });
 
   if (error) {
     console.error("Supabase persist chat error:", error.message || error);
+    console.error("Chat table:", supabaseChatTable, "groupId:", groupId);
   }
 }
 
@@ -539,6 +571,80 @@ app.delete("/api/groups/:id", requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
+app.patch("/api/groups/:id", requireAdmin, async (req, res) => {
+  const groupId = String(req.params.id);
+  const group = groups.get(groupId);
+
+  if (!group) {
+    return res.status(404).json({ error: "Group not found." });
+  }
+
+  const updates = {};
+  const supabaseUpdates = {};
+
+  if (req.body?.name !== undefined) {
+    const name = normalizeGroupName(req.body.name);
+    if (name.length < 2) {
+      return res.status(400).json({ error: "Group name must be at least 2 characters." });
+    }
+    group.name = name;
+    updates.name = name;
+    supabaseUpdates.name = name;
+  }
+
+  if (req.body?.maxUsers !== undefined) {
+    const maxUsers = Math.min(Math.max(Number(req.body.maxUsers) || 2, 2), 200);
+    group.maxUsers = maxUsers;
+    updates.maxUsers = maxUsers;
+    supabaseUpdates.maxUsers = maxUsers;
+  }
+
+  if (req.body?.passcode !== undefined) {
+    const passcode = normalizePasscode(req.body.passcode);
+    group.passcode = passcode;
+    updates.passcode = passcode;
+    supabaseUpdates.passcode = passcode;
+  }
+
+  if (Object.keys(supabaseUpdates).length > 0) {
+    await updateGroupRecord(group.id, supabaseUpdates);
+  }
+
+  broadcastGroups();
+  res.json({ ok: true, group: serializeGroup(group) });
+});
+
+app.put("/api/groups/reorder", requireAdmin, async (req, res) => {
+  const { order } = req.body;
+  if (!Array.isArray(order)) {
+    return res.status(400).json({ error: "order must be an array of group IDs." });
+  }
+
+  const supabaseUpdates = [];
+  for (let i = 0; i < order.length; i++) {
+    const groupId = String(order[i]);
+    const group = groups.get(groupId);
+    if (group) {
+      group.order = i;
+      const numericId = Number(groupId);
+      supabaseUpdates.push({
+        id: Number.isFinite(numericId) ? numericId : groupId,
+        order: i
+      });
+    }
+  }
+
+  if (supabaseUpdates.length > 0 && supabase) {
+    for (const row of supabaseUpdates) {
+      const { error } = await supabase.from(supabaseTable).update({ order: row.order }).eq("id", row.id);
+      if (error) console.error("Supabase reorder error:", error.message || error);
+    }
+  }
+
+  broadcastGroups();
+  res.json({ ok: true });
+});
+
 app.post("/api/agora/token", (req, res) => {
   const group = req.body?.groupId ? groups.get(String(req.body.groupId)) : null;
   const channelName = group?.channelName || String(req.body?.channelName || "").trim();
@@ -676,17 +782,25 @@ io.on("connection", (socket) => {
         .order("timestamp", { ascending: true })
         .limit(100);
 
+      if (error) {
+        console.error("chat:history Supabase error:", error.message || error);
+      }
+
       if (!error && data) {
+        console.log(`chat:history loaded ${data.length} messages for group ${groupId} from Supabase`);
         const messages = data.map((row) => ({
           id: String(row.id || ""),
           displayName: row.display_name || "",
           text: row.text || "",
-          timestamp: row.timestamp || ""
+          timestamp: row.timestamp || "",
+          system: !!row.system,
+          type: row.type || undefined
         }));
         return reply({ ok: true, messages });
       }
     }
 
+    console.log(`chat:history fallback to memory for group ${groupId}, ${(chatMessages.get(groupId) || []).length} messages`);
     const messages = chatMessages.get(groupId) || [];
     return reply({ ok: true, messages });
   });
@@ -787,6 +901,59 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     leaveGroup(socket);
+  });
+
+  socket.on("kick:user", (payload, respond) => {
+    const reply = typeof respond === "function" ? respond : () => {};
+    const adminToken = String(payload?.adminToken || "");
+    const session = verifyAdminSession(adminToken);
+    if (!session) return reply({ ok: false, error: "Admin access required." });
+
+    const active = sockets.get(socket.id);
+    if (!active) return reply({ ok: false, error: "Join a room first." });
+
+    const group = groups.get(active.groupId);
+    if (!group) return reply({ ok: false, error: "Room not found." });
+
+    const targetSocketId = String(payload?.socketId || "");
+    if (!targetSocketId) return reply({ ok: false, error: "Target socket ID required." });
+
+    const targetParticipant = group.participants.get(targetSocketId);
+    if (!targetParticipant) return reply({ ok: false, error: "User not found in this room." });
+
+    if (targetParticipant.admin) return reply({ ok: false, error: "Cannot kick another admin." });
+
+    const targetSocket = io.sockets.sockets.get(targetSocketId);
+    if (targetSocket) {
+      targetSocket.emit("kicked", { groupId: group.id, by: session.sub });
+    }
+
+    const kickedName = targetParticipant.displayName;
+    group.participants.delete(targetSocketId);
+    if (targetSocket) {
+      targetSocket.leave(group.id);
+    }
+    sockets.delete(targetSocketId);
+
+    io.to(group.id).emit("presence:update", serializeGroup(group));
+    broadcastGroups();
+
+    const sysMsg = {
+      id: `${Date.now()}-sys`,
+      displayName: "",
+      text: `${kickedName} was kicked by admin`,
+      timestamp: new Date().toISOString(),
+      system: true,
+      type: "leave"
+    };
+    if (!chatMessages.has(group.id)) chatMessages.set(group.id, []);
+    const roomMessages = chatMessages.get(group.id);
+    roomMessages.push(sysMsg);
+    if (roomMessages.length > 100) roomMessages.splice(0, roomMessages.length - 100);
+    persistChatMessage(group.id, sysMsg);
+    io.to(group.id).emit("chat:message", sysMsg);
+
+    return reply({ ok: true });
   });
 });
 

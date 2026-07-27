@@ -1,9 +1,11 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 
-const HomePage = lazy(() => import("./components/HomePage.jsx"));
-const AdminPage = lazy(() => import("./components/AdminPage.jsx"));
-const RoomPage = lazy(() => import("./components/RoomPage.jsx"));
+const HomePage = lazy(() => import("./components/HomePage"));
+const AdminPage = lazy(() => import("./components/AdminPage"));
+const RoomPage = lazy(() => import("./components/RoomPage"));
+const AboutPage = lazy(() => import("./components/AboutPage"));
+const DonationPage = lazy(() => import("./components/DonationPage"));
 
 function Loading() {
   return (
@@ -21,6 +23,8 @@ export default function App() {
       <Suspense fallback={<Loading />}>
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="/donate" element={<DonationPage />} />
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/room/:id" element={<RoomPage />} />
         </Routes>
