@@ -144,7 +144,7 @@ async function loadGroupsFromStore() {
   const { data, error } = await supabase
     .from(supabaseTable)
     .select("*")
-    .order("createdAt", { ascending: true });
+    .order("createdat", { ascending: true });
 
   if (error) {
     console.error("Supabase load groups error:", error.message || error);
@@ -973,6 +973,12 @@ if (fs.existsSync(indexPath)) {
 }
 
 (async () => {
+  if (supabase) {
+    console.log(`Supabase connected: ${supabaseUrl}`);
+  } else {
+    console.error("WARNING: Supabase is NOT configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Railway variables.");
+  }
+
   try {
     await loadGroupsFromStore();
     await loadChatFromStore();
@@ -981,6 +987,6 @@ if (fs.existsSync(indexPath)) {
   }
 
   server.listen(port, () => {
-    console.log(`MySpeak running on http://localhost:${port}`);
+    console.log(`MySpeak running on port ${port}`);
   });
 })();
