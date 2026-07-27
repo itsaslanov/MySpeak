@@ -153,7 +153,7 @@ async function loadGroupsFromStore() {
 
   groups.clear();
   for (const row of data || []) {
-    if (!row?.name || !row?.channelName) {
+    if (!row?.name || !row?.channelname) {
       continue;
     }
 
@@ -596,7 +596,7 @@ app.patch("/api/groups/:id", requireAdmin, async (req, res) => {
     const maxUsers = Math.min(Math.max(Number(req.body.maxUsers) || 2, 2), 200);
     group.maxUsers = maxUsers;
     updates.maxUsers = maxUsers;
-    supabaseUpdates.maxUsers = maxUsers;
+    supabaseUpdates.maxusers = maxUsers;
   }
 
   if (req.body?.passcode !== undefined) {
