@@ -240,7 +240,7 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
           body: { groupId: group.id, uid }
         });
         if (disposed) return;
-        const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+        const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8", logLevel: 4 });
         client.enableAudioVolumeIndicator();
         clientRef.current = client;
         client.on("user-published", async (user, mediaType) => {
