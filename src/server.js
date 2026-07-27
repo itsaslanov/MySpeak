@@ -45,6 +45,8 @@ const supabase =
     ? createClient(supabaseUrl, supabaseServiceRoleKey)
     : null;
 
+let activeAdminSessionId = null;
+
 const groups = new Map();
 const sockets = new Map();
 const chatMessages = new Map();
@@ -295,12 +297,8 @@ async function validateAdminLogin(username, password) {
   }
 
   if (supabase) {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: username,
-      password
-    });
-
-    if (!error && data?.user) {
+    const row = await getSupabaseAdminRow(username);
+    if (row && verifyPassword(password, row.passwordHash)) {
       return true;
     }
   }
@@ -389,10 +387,12 @@ async function deleteChatForGroup(groupId) {
 }
 
 function signAdminSession(username) {
+  activeAdminSessionId = crypto.randomUUID();
   const payload = Buffer.from(
     JSON.stringify({
       sub: username,
       role: "admin",
+      sid: activeAdminSessionId,
       exp: Date.now() + 24 * 60 * 60 * 1000
     })
   ).toString("base64url");
@@ -420,7 +420,7 @@ function verifyAdminSession(token) {
 
   try {
     const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-    if (session.role !== "admin" || Date.now() > session.exp) {
+    if (session.role !== "admin" || session.sid !== activeAdminSessionId || Date.now() > session.exp) {
       return null;
     }
     return session;
