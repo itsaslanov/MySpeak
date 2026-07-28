@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
-import { Lock, LogOut, Mic, RefreshCw, Users, Info, Settings, Heart } from "lucide-react";
+import { Lock, LogOut, Mic, Pencil, RefreshCw, Users, Info, Settings, Heart, ChevronDown } from "lucide-react";
 import { request, SOCKET_URL, grantRoomAccess, getAdminToken, setAdminToken } from "../lib/api";
+import MySpeakLogo from "./MySpeakLogo";
 import type { Group, Participant } from "../types";
 import NameModal from "./NameModal";
 import Footer from "./Footer";
@@ -18,37 +19,37 @@ const GroupCard = React.memo(function GroupCard({ group, displayName, onJoin, in
   const isLive = group.participants.length > 0;
   return (
     <div
-      className={`glass-card p-4 sm:p-5 opacity-0 animate-slide-up stagger-${Math.min(index + 1, 6)} ${isLive ? "ring-1 ring-emerald-500/20" : ""}`}
+      className={`glass-card p-5 sm:p-6 opacity-0 animate-slide-up stagger-${Math.min(index + 1, 6)} ${isLive ? "ring-1 ring-emerald-500/20" : ""}`}
       style={{ animationFillMode: "forwards" }}
     >
       <div className="flex items-start justify-between">
-        <div className="flex items-center gap-2.5">
-          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${isLive ? "bg-emerald-500/10" : "bg-accent/10"}`}>
-            <Mic size={17} className={isLive ? "text-emerald-500" : "text-accent"} />
+        <div className="flex items-center gap-3">
+          <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${isLive ? "bg-emerald-500/10" : "bg-accent/10"}`}>
+            <Mic size={20} className={isLive ? "text-emerald-500" : "text-accent"} />
           </div>
           <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <h3 className="truncate text-[13px] sm:text-sm font-semibold text-zinc-100">{group.name}</h3>
-              {group.hasPasscode && <Lock size={11} className="shrink-0 text-zinc-600" />}
+            <div className="flex items-center gap-2">
+              <h3 className="truncate text-sm sm:text-base font-semibold text-zinc-100">{group.name}</h3>
+              {group.hasPasscode && <Lock size={12} className="shrink-0 text-zinc-600" />}
               {isLive && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-400 ring-1 ring-emerald-500/20">
-                  <span className="h-1 w-1 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-400 ring-1 ring-emerald-500/20">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   Live
                 </span>
               )}
             </div>
-            <div className="mt-1 flex items-center gap-1.5 text-[11px] text-zinc-500 sm:text-xs">
-              <Users size={11} />
+            <div className="mt-1.5 flex items-center gap-1.5 text-xs text-zinc-500">
+              <Users size={13} />
               {group.count}/{group.maxUsers} speaking
             </div>
           </div>
         </div>
         {group.participants.length > 0 && (
-          <div className="flex -space-x-1.5">
+          <div className="flex -space-x-2">
             {group.participants.slice(0, 3).map((p: Participant) => (
               <div
                 key={p.socketId}
-                className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-surface-2 bg-surface-3 text-[10px]"
+                className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-surface-2 bg-surface-3 text-[11px]"
                 title={p.displayName}
               >
                 {p.avatar || p.displayName.charAt(0).toUpperCase()}
@@ -58,24 +59,24 @@ const GroupCard = React.memo(function GroupCard({ group, displayName, onJoin, in
         )}
       </div>
 
-      <div className="mt-3 min-h-[20px]">
+      <div className="mt-4 min-h-[24px]">
         {group.participants.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
+          <div className="flex flex-wrap gap-1.5">
             {group.participants.slice(0, 4).map((p: Participant) => (
               <span
                 key={p.socketId}
-                className="inline-flex items-center gap-1 rounded-md bg-surface-3 px-2 py-0.5 text-[11px] text-zinc-400"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.04] px-2.5 py-1 text-xs text-zinc-400"
               >
-                <span className="h-1 w-1 rounded-full bg-emerald-500" />
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                 {p.displayName}
               </span>
             ))}
             {group.participants.length > 4 && (
-              <span className="text-[11px] text-zinc-600">+{group.participants.length - 4}</span>
+              <span className="text-xs text-zinc-600">+{group.participants.length - 4}</span>
             )}
           </div>
         ) : (
-          <p className="text-[11px] text-zinc-600">No one speaking</p>
+          <p className="text-xs text-zinc-600">No one speaking</p>
         )}
       </div>
 
@@ -83,9 +84,9 @@ const GroupCard = React.memo(function GroupCard({ group, displayName, onJoin, in
         type="button"
         onClick={() => onJoin(group)}
         disabled={!displayName || group.isFull}
-        className="btn-primary mt-3 flex h-11 w-full items-center justify-center gap-1.5 text-[13px] sm:mt-4 sm:h-9 sm:text-xs"
+        className="btn-primary mt-4 flex h-12 w-full items-center justify-center gap-2 text-sm sm:mt-5 sm:h-11"
       >
-        {group.hasPasscode ? <Lock size={13} /> : <Mic size={14} />}
+        {group.hasPasscode ? <Lock size={15} /> : <Mic size={16} />}
         {group.hasPasscode ? "Enter passcode" : "Join room"}
       </button>
     </div>
@@ -108,6 +109,16 @@ export default function HomePage() {
   const [editingName, setEditingName] = useState(false);
   const [isAdmin, setIsAdmin] = useState(() => !!getAdminToken());
   const [userAvatar, setUserAvatar] = useState(() => localStorage.getItem("myspeak:avatar") || "😀");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    }
+    if (menuOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [menuOpen]);
 
   const visibleGroups = useMemo(() => groups.filter((g) => !g.isFull), [groups]);
   const totalOnline = useMemo(() => groups.reduce((sum, g) => sum + g.count, 0), [groups]);
@@ -210,21 +221,21 @@ export default function HomePage() {
 
       {passcodeModal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-5">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-          <form onSubmit={handlePasscodeSubmit} className="relative w-full sm:max-w-xs animate-[slideUp_0.2s_ease] sm:animate-scale-in">
-            <div className="glass-card p-6 rounded-t-2xl sm:rounded-2xl">
-              <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-surface-3">
-                <Lock size={18} className="text-zinc-400" />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-md" />
+          <form onSubmit={handlePasscodeSubmit} className="relative w-full sm:max-w-sm animate-[slideUp_0.2s_ease] sm:animate-scale-in">
+            <div className="glass-card p-7 rounded-t-2xl sm:rounded-2xl">
+              <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-white/[0.05]">
+                <Lock size={20} className="text-zinc-400" />
               </div>
-              <h2 className="text-[15px] sm:text-sm font-semibold text-zinc-100">Passcode required</h2>
-              <p className="mt-1.5 text-[13px] sm:text-xs leading-relaxed text-zinc-500">
+              <h2 className="text-base font-semibold text-zinc-100">Passcode required</h2>
+              <p className="mt-2 text-sm leading-relaxed text-zinc-500">
                 Enter the passcode to join <span className="font-medium text-zinc-300">{passcodeModal.name}</span>
               </p>
-              <p className="mt-2 text-[11px] text-zinc-500">
+              <p className="mt-2 text-xs text-zinc-500">
                 Don't have it? <a href="https://t.me/asesolo" target="_blank" rel="noopener noreferrer" className="font-medium text-accent hover:underline">Ask admin</a>
               </p>
               {passcodeError && (
-                <div className="mt-4 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[13px] sm:text-xs text-red-400">
+                <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-2.5 text-sm text-red-400">
                   {passcodeError}
                 </div>
               )}
@@ -235,20 +246,20 @@ export default function HomePage() {
                 onChange={(e) => setPasscodeInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") handlePasscodeSubmit(e); }}
                 placeholder="Enter passcode"
-                className="glass-input mt-4 h-12 sm:h-10 w-full px-4 text-[15px] sm:text-sm"
+                className="glass-input mt-4 h-12 sm:h-11 w-full px-4 text-base"
               />
-              <div className="mt-4 flex gap-2.5 pb-[env(safe-area-inset-bottom)]">
+              <div className="mt-5 flex gap-3 pb-[env(safe-area-inset-bottom)]">
                 <button
                   type="button"
                   onClick={() => setPasscodeModal(null)}
-                  className="btn-secondary h-12 sm:h-10 flex-1 text-[13px] sm:text-xs"
+                  className="btn-secondary h-12 sm:h-11 flex-1 text-sm"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={!passcodeInput.trim()}
-                  className="btn-primary h-12 sm:h-10 flex-1 text-[13px] sm:text-xs"
+                  className="btn-primary h-12 sm:h-11 flex-1 text-sm"
                 >
                   Join
                 </button>
@@ -259,53 +270,78 @@ export default function HomePage() {
       )}
 
       <div className="mx-auto flex min-h-[100dvh] w-full max-w-5xl flex-col px-4 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
-        <header className="flex items-center justify-between pb-6 sm:pb-8 lg:pb-10">
-          <div className="flex items-center gap-2.5 sm:gap-3.5">
-            <img src="/myspeak.png" alt="MySpeak" className="h-8 w-8 rounded-lg object-cover sm:h-8 sm:w-8" />
-            <h1 className="text-[15px] sm:text-base font-semibold text-zinc-100">MySpeak</h1>
+        <header className="flex items-center justify-between pb-8 sm:pb-10 lg:pb-12">
+          <div className="flex items-center gap-2.5">
+            <MySpeakLogo className="h-8 w-8 rounded-lg" />
+            <h1 className="text-lg sm:text-xl font-semibold text-zinc-100">MySpeak</h1>
             {totalOnline > 0 && (
-              <div className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-1 ring-1 ring-emerald-500/20">
+              <div className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-3 py-1.5 ring-1 ring-emerald-500/20">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-[11px] font-semibold text-emerald-400">{totalOnline} online</span>
+                <span className="text-xs font-semibold text-emerald-400">{totalOnline} online</span>
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <Link to="/about" className="btn-secondary flex h-9 sm:h-8 items-center gap-1.5 px-2.5 text-[13px] sm:text-xs">
-              <Info size={12} />
+          <div className="flex items-center gap-2.5">
+            <Link to="/about" className="btn-secondary flex h-10 sm:h-9 items-center gap-2 px-3 text-sm">
+              <Info size={14} />
               <span className="hidden sm:inline">About</span>
             </Link>
-            <Link to="/donate" className="btn-secondary flex h-9 sm:h-8 items-center gap-1.5 px-2.5 text-[13px] sm:text-xs">
-              <Heart size={12} />
-              <span className="hidden sm:inline">Donate</span>
+            <Link to="/donate" className="flex h-10 sm:h-9 items-center gap-2 rounded-[14px] bg-gradient-to-r from-rose-500/20 to-pink-500/20 px-3.5 text-sm ring-1 ring-inset ring-rose-500/20 transition hover:from-rose-500/30 hover:to-pink-500/30 hover:ring-rose-500/30">
+              <Heart size={15} className="animate-[heart-beat_1.5s_ease-in-out_infinite] text-rose-400 drop-shadow-[0_0_6px_rgba(251,113,133,0.6)]" />
+              <span className="hidden sm:inline font-medium text-rose-300">Donate</span>
             </Link>
-            {displayName && (
+            {displayName && !isAdmin && (
               <button
                 type="button"
-                onClick={resetDisplayName}
-                title="Change name"
-                className="btn-secondary flex h-9 sm:h-8 items-center gap-1.5 px-2.5 text-[13px] sm:text-xs"
+                onClick={() => resetDisplayName()}
+                className="btn-secondary flex h-10 sm:h-9 items-center gap-2 px-3 text-sm"
               >
-                <span className="text-[13px]">{userAvatar}</span>
+                <span className="text-base">{userAvatar}</span>
                 <span className="hidden sm:inline">{displayName}</span>
-                <LogOut size={12} className="text-zinc-600" />
+                <Pencil size={11} className="text-zinc-600" />
               </button>
             )}
             {isAdmin && (
-              <>
-                <Link to="/admin" className="btn-secondary flex h-9 sm:h-8 items-center gap-1.5 px-2.5 text-[13px] sm:text-xs">
-                  <Settings size={12} />
-                  <span className="hidden sm:inline">Admin</span>
-                </Link>
+              <div className="relative" ref={menuRef}>
                 <button
                   type="button"
-                  onClick={handleAdminLogout}
-                  className="btn-secondary flex h-9 sm:h-8 items-center gap-1.5 px-2.5 text-[13px] sm:text-xs"
+                  onClick={() => setMenuOpen(!menuOpen)}
+                  className="btn-secondary flex h-10 sm:h-9 items-center gap-2 px-3 text-sm"
                 >
-                  <LogOut size={12} />
-                  <span className="hidden sm:inline">Sign out</span>
+                  <span className="text-base">{userAvatar}</span>
+                  <span className="hidden sm:inline">{displayName}</span>
+                  <ChevronDown size={13} className={`text-zinc-500 transition-transform ${menuOpen ? "rotate-180" : ""}`} />
                 </button>
-              </>
+                {menuOpen && (
+                  <div className="absolute right-0 top-full z-50 mt-2 w-44 overflow-hidden rounded-xl border border-white/[0.08] bg-[rgba(24,24,27,0.9)] p-1 shadow-xl backdrop-blur-xl">
+                    <Link
+                      to="/admin"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/[0.06] hover:text-white"
+                    >
+                      <Settings size={14} />
+                      Admin Panel
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => { setMenuOpen(false); resetDisplayName(); }}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/[0.06] hover:text-white"
+                    >
+                      <span className="text-base">{userAvatar}</span>
+                      Change Name
+                    </button>
+                    <div className="my-1 h-px bg-white/[0.06]" />
+                    <button
+                      type="button"
+                      onClick={() => { setMenuOpen(false); handleAdminLogout(); }}
+                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/[0.06] hover:text-red-400"
+                    >
+                      <LogOut size={14} />
+                      Sign Out
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </header>
@@ -324,34 +360,34 @@ export default function HomePage() {
             </div>
           )}
 
-          <div className="mb-3 flex items-center justify-between sm:mb-4">
-            <p className="text-[13px] sm:text-xs text-zinc-500">
+          <div className="mb-4 flex items-center justify-between sm:mb-5">
+            <p className="text-sm text-zinc-500">
               {visibleGroups.length} open room{visibleGroups.length === 1 ? "" : "s"}
             </p>
             <button
               type="button"
               onClick={loadInitialData}
               title="Refresh"
-              className="btn-secondary flex h-8 w-8 sm:h-7 sm:w-7 items-center justify-center !rounded-md p-0"
+              className="btn-secondary flex h-9 w-9 sm:h-8 sm:w-8 items-center justify-center !rounded-xl p-0"
             >
-              <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             </button>
           </div>
 
           {loading ? (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 sm:gap-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 sm:gap-5">
               {[1, 2, 3].map((i) => (
-                <div key={i} className="glass-card h-40 sm:h-36 animate-pulse p-4 sm:p-5">
-                  <div className="space-y-3">
-                    <div className="h-3 w-28 rounded bg-surface-3" />
-                    <div className="h-3 w-16 rounded bg-surface-3" />
-                    <div className="mt-6 h-10 sm:h-9 w-full rounded-lg bg-surface-3" />
+                <div key={i} className="glass-card h-44 sm:h-40 animate-pulse p-5 sm:p-6">
+                  <div className="space-y-4">
+                    <div className="h-3.5 w-32 rounded bg-white/[0.06]" />
+                    <div className="h-3.5 w-20 rounded bg-white/[0.06]" />
+                    <div className="mt-8 h-12 sm:h-11 w-full rounded-xl bg-white/[0.06]" />
                   </div>
                 </div>
               ))}
             </div>
           ) : visibleGroups.length ? (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 sm:gap-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 sm:gap-5">
               {visibleGroups.map((group, i) => (
                 <GroupCard
                   key={group.id}
@@ -364,10 +400,10 @@ export default function HomePage() {
             </div>
           ) : (
             <div className="flex flex-1 items-center justify-center">
-              <div className="glass-card p-6 text-center animate-fade-in sm:p-10">
-                <Users className="mx-auto text-zinc-600" size={24} />
-                <h2 className="mt-4 text-[15px] sm:text-sm font-semibold text-zinc-200">No rooms available</h2>
-                <p className="mt-1.5 text-[13px] sm:text-xs text-zinc-500">
+              <div className="glass-card p-8 text-center animate-fade-in sm:p-12">
+                <Users className="mx-auto text-zinc-600" size={28} />
+                <h2 className="mt-5 text-lg sm:text-xl font-semibold text-zinc-200">No rooms available</h2>
+                <p className="mt-2 text-sm text-zinc-500">
                   Ask an admin to create a room.
                 </p>
               </div>

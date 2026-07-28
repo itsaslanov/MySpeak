@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import MySpeakLogo from "./components/MySpeakLogo";
 
 const HomePage = lazy(() => import("./components/HomePage"));
 const AdminPage = lazy(() => import("./components/AdminPage"));
@@ -9,9 +10,10 @@ const DonationPage = lazy(() => import("./components/DonationPage"));
 
 function Loading() {
   return (
-    <div className="flex min-h-screen items-center justify-center">
-      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-surface-3">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-600 border-t-zinc-300" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden" style={{ background: "#09090b" }}>
+      <div className="flex items-center gap-2 loader-pulse">
+        <MySpeakLogo className="h-8 w-8 rounded-[8px]" />
+        <span className="text-white font-semibold text-base tracking-tight leading-none">MySpeak</span>
       </div>
     </div>
   );

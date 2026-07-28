@@ -1,9 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import AgoraRTC, { IAgoraRTCClient, IMicrophoneAudioTrack } from "agora-rtc-sdk-ng";
-import { AlertCircle, ArrowLeft, Crown, MessageSquare, Mic, MicOff, PhoneOff, Send, UserMinus, Users, Volume2, Pencil, X, Check, Clipboard } from "lucide-react";
+import { AlertCircle, ArrowLeft, Crown, LogOut, MessageSquare, Mic, MicOff, PhoneOff, Send, UserMinus, Users, Volume2, X, Clipboard } from "lucide-react";
 import { request, getAdminToken } from "../lib/api";
 import type { Group, Participant, ChatMessage, Config, AgoraTokenResponse } from "../types";
 import type { Socket } from "socket.io-client";
+
+AgoraRTC.setLogLevel(4);
 
 function createUid() {
   return Math.floor(100000 + Math.random() * 900000000);
@@ -18,32 +20,32 @@ interface ParticipantBubbleProps {
 const ParticipantBubble = React.memo(function ParticipantBubble({ participant, isSelf, speaking }: ParticipantBubbleProps) {
   const isParticipantAdmin = participant.admin;
   return (
-    <div className="flex flex-col items-center gap-1.5 animate-scale-in">
+    <div className="flex flex-col items-center gap-2 animate-scale-in">
       <div className="relative">
         <div
-          className={`flex h-12 w-12 sm:h-11 sm:w-11 items-center justify-center rounded-full text-lg font-bold transition duration-300 ${
+          className={`flex h-14 w-14 items-center justify-center rounded-full text-base font-semibold transition duration-300 ${
             speaking ? "speaking-glow" : ""
           } ${
             isSelf
-              ? "bg-accent text-white shadow-md shadow-accent/20"
+              ? "bg-accent/15 text-accent ring-1 ring-accent/25"
               : isParticipantAdmin
-                ? "bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30"
-                : "bg-surface-3 text-zinc-300"
+                ? "bg-amber-500/8 text-amber-400 ring-1 ring-amber-500/15"
+                : "bg-white/[0.04] text-zinc-500 ring-1 ring-white/[0.05]"
           }`}
         >
           {participant.avatar || participant.displayName.charAt(0).toUpperCase()}
         </div>
         {isParticipantAdmin && (
-          <div className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 shadow-sm">
+          <div className="absolute -top-0.5 -right-0.5 flex h-4.5 w-4.5 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-amber-500">
             <Crown size={9} className="text-white" />
           </div>
         )}
       </div>
-      <span className={`max-w-[4rem] truncate text-[11px] ${isParticipantAdmin ? "text-amber-400" : "text-zinc-400"}`}>
+      <span className={`max-w-[4.5rem] truncate text-[11px] font-medium ${isParticipantAdmin ? "text-amber-400" : "text-zinc-500"}`}>
         {participant.displayName}
       </span>
       {isSelf && (
-        <span className="text-[9px] font-semibold uppercase tracking-wider text-accent">You</span>
+        <span className="text-[9px] font-semibold uppercase tracking-widest text-zinc-600">You</span>
       )}
     </div>
   );
@@ -63,6 +65,8 @@ interface TypingPayload {
   displayName: string;
   typing: boolean;
 }
+
+type SidebarTab = "room" | "members";
 
 export default function CallRoom({ group, displayName, avatar, socket, config, passcode, onLeave }: CallRoomProps) {
   const uid = useMemo(createUid, []);
@@ -89,9 +93,7 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
   const typingTimersRef = useRef<{ self?: ReturnType<typeof setTimeout> }>({});
   const isAdmin = !!getAdminToken();
   const [unreadCount, setUnreadCount] = useState(0);
-  const [showUserList, setShowUserList] = useState(false);
-  const [editingName, setEditingName] = useState(false);
-  const [newName, setNewName] = useState(displayName);
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("room");
   const [speakingMap, setSpeakingMap] = useState<Record<string, boolean>>({});
 
   const micActive = !error && !/error|denied|unavailable|failed/i.test(micStatus) && micEnabled;
@@ -108,13 +110,13 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        if (showUserList) setShowUserList(false);
+        if (sidebarTab === "members") setSidebarTab("room");
         else if (showChat) setShowChat(false);
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [showChat, showUserList]);
+  }, [showChat, sidebarTab]);
 
   async function cleanupAgora() {
     const client = clientRef.current;
@@ -384,163 +386,204 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
   }
 
   return (
-    <main className="h-dvh">
-      <div className="mx-auto flex h-dvh w-full max-w-5xl flex-col px-3 py-3 sm:px-6 sm:py-5 lg:flex-row lg:items-stretch lg:gap-5 lg:py-5">
+    <main className="h-dvh bg-[#060608]">
+      <div className="mx-auto flex h-dvh w-full max-w-5xl flex-col px-2 py-2 sm:px-4 sm:py-3 lg:flex-row lg:items-stretch lg:gap-3 lg:py-3">
         {error && (
-          <div className="mb-3 flex w-full items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-400 lg:absolute lg:top-4 lg:left-1/2 lg:max-w-md lg:-translate-x-1/2">
+          <div className="mb-2 flex w-full items-start gap-2 rounded-2xl border border-red-500/20 bg-red-500/5 px-4 py-2.5 text-xs text-red-400 lg:absolute lg:top-3 lg:left-1/2 lg:max-w-md lg:-translate-x-1/2">
             <AlertCircle className="mt-0.5 shrink-0" size={13} />
             <span>{error}</span>
           </div>
         )}
 
-        <div className={`flex flex-1 flex-col ${showChat ? "hidden lg:flex" : "flex"} lg:w-72 xl:w-80 lg:shrink-0`}>
-          <div className="w-full overflow-hidden rounded-2xl border border-zinc-800/50 bg-surface-2">
-            <div className="flex items-center justify-between border-b border-zinc-800/50 px-3 py-2.5 sm:px-4 sm:py-3">
-              <div className="flex items-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={handleLeave}
-                  title="Go back"
-                  className="flex h-9 w-9 sm:h-7 sm:w-7 items-center justify-center rounded-lg bg-surface-3 text-zinc-400 transition hover:text-zinc-300"
-                >
-                  <ArrowLeft size={14} />
-                </button>
-                <div>
-                  <h1 className="text-[13px] sm:text-xs font-semibold text-zinc-100">{group.name}</h1>
-                  <div className="flex items-center gap-1">
-                    {editingName ? (
-                      <form onSubmit={(e: React.FormEvent) => { e.preventDefault(); handleRename(); }} className="flex items-center gap-1">
-                        <input
-                          autoFocus
-                          value={newName}
-                          onChange={(e) => setNewName(e.target.value)}
-                          maxLength={32}
-                          className="h-6 sm:h-4 w-28 sm:w-24 rounded bg-surface-3 px-1.5 text-[11px] sm:text-[10px] text-zinc-200 outline-none focus:ring-1 focus:ring-accent/30"
-                        />
-                        <button type="submit" className="text-emerald-400 hover:text-emerald-300 p-1"><Check size={12} /></button>
-                        <button type="button" onClick={() => { setEditingName(false); setNewName(displayName); }} className="text-zinc-500 hover:text-zinc-300 p-1"><X size={12} /></button>
-                      </form>
-                    ) : (
-                      <>
-                        <span className="text-[11px] sm:text-[10px] text-zinc-500">{displayName}</span>
-                        <button type="button" onClick={() => setEditingName(true)} className="text-zinc-600 transition hover:text-zinc-400 p-1">
-                          <Pencil size={10} />
-                        </button>
-                      </>
-                    )}
-                    <span className={`h-1 w-1 rounded-full ${joined ? "bg-emerald-500" : "bg-amber-500"}`} />
-                    <span className="text-[11px] sm:text-[10px] text-zinc-500">
-                      {joined ? `${participants.length} speaking` : status}
+        <div className={`flex flex-1 flex-col min-h-0 ${showChat ? "hidden lg:flex" : "flex"} lg:w-72 xl:w-80 lg:shrink-0`}>
+          <div className="flex flex-1 flex-col overflow-hidden bg-[#0c0c10] min-h-0 rounded-2xl ring-1 ring-white/[0.04]">
+            <div className="px-4 pt-4 pb-3 border-b border-white/[0.04]">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.04] ring-1 ring-white/[0.06]">
+                  <Users size={16} className="text-zinc-500" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h1 className="text-sm font-bold text-zinc-100 tracking-tight truncate">{group.name}</h1>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className={`h-1.5 w-1.5 rounded-full ${joined ? "bg-emerald-500" : "bg-amber-500"}`} />
+                    <span className="text-[10px] text-zinc-600">
+                      {joined ? `${participants.length} online` : status}
                     </span>
                   </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={() => setShowChat(true)}
-                  className={`hidden lg:flex h-7 w-7 items-center justify-center rounded-md transition ${
-                    showChat ? "bg-accent/15 text-accent" : "text-zinc-500 hover:text-zinc-400"
-                  }`}
+                  onClick={handleLeave}
+                  title="Leave room"
+                  className="flex h-8 items-center gap-1.5 rounded-xl bg-red-500/10 text-red-400 px-3 text-[11px] font-medium transition hover:bg-red-500/15"
                 >
-                  <MessageSquare size={13} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setShowUserList((v) => !v); if (!showUserList) setShowChat(false); }}
-                  className={`flex h-7 sm:h-6 items-center gap-1 rounded-md bg-surface-3 px-2 sm:px-1.5 text-[11px] sm:text-[10px] text-zinc-500 transition hover:text-zinc-400 ${
-                    showUserList ? "text-accent" : ""
-                  }`}
-                >
-                  <Users size={10} />
-                  {participants.length}
+                  <LogOut size={13} />
+                  Leave
                 </button>
               </div>
             </div>
 
-            <div className="px-3 py-4 sm:px-4 sm:py-5 lg:py-3">
-              {participants.length > 0 ? (
-                <div className="flex flex-wrap justify-center gap-3 sm:gap-4">
+            <div className="flex items-center border-b border-white/[0.04]">
+              <button
+                type="button"
+                onClick={() => setSidebarTab("room")}
+                className={`flex-1 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider transition ${
+                  sidebarTab === "room" ? "text-zinc-300 border-b border-zinc-400" : "text-zinc-600 hover:text-zinc-500"
+                }`}
+              >
+                Room
+              </button>
+              <button
+                type="button"
+                onClick={() => setSidebarTab("members")}
+                className={`flex-1 px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider transition ${
+                  sidebarTab === "members" ? "text-zinc-300 border-b border-zinc-400" : "text-zinc-600 hover:text-zinc-500"
+                }`}
+              >
+                Members ({participants.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowChat(true)}
+                className="relative flex h-8 items-center justify-center rounded-xl px-3 text-zinc-600 transition hover:text-zinc-400 lg:hidden"
+              >
+                <MessageSquare size={14} />
+                {unreadCount > 0 && (
+                  <span className="ml-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto min-h-0 px-4 py-5">
+              {sidebarTab === "room" ? (
+                <>
+                  {participants.length > 0 ? (
+                    <div className="grid grid-cols-3 gap-5 sm:grid-cols-4">
+                      {participants.map((p) => (
+                        <ParticipantBubble
+                          key={p.socketId}
+                          participant={p}
+                          isSelf={Number(p.uid) === uid}
+                          speaking={!!speakingMap[String(p.uid)]}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center py-8">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.03] ring-1 ring-white/[0.04]">
+                        <Users size={20} className="text-zinc-700" />
+                      </div>
+                      <p className="mt-3 text-[11px] text-zinc-600">Waiting for others...</p>
+                    </div>
+                  )}
+                  {micStatus && (
+                    <p className="mt-5 text-center text-[11px] text-zinc-700">{micStatus}</p>
+                  )}
+                </>
+              ) : (
+                <div className="space-y-1">
                   {participants.map((p) => (
-                    <ParticipantBubble
-                      key={p.socketId}
-                      participant={p}
-                      isSelf={Number(p.uid) === uid}
-                      speaking={!!speakingMap[String(p.uid)]}
-                    />
+                    <div key={p.socketId} className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition hover:bg-white/[0.02]">
+                      <div className="relative">
+                        <div className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-medium transition duration-300 ${
+                          speakingMap[String(p.uid)] ? "speaking-glow" : ""
+                        } ${
+                          p.admin ? "bg-amber-500/10 ring-1 ring-amber-500/20" : "bg-white/[0.04] ring-1 ring-white/[0.04]"
+                        }`}>
+                          {p.avatar || p.displayName.charAt(0).toUpperCase()}
+                        </div>
+                        {p.admin && (
+                          <div className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500">
+                            <Crown size={8} className="text-white" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`truncate text-xs font-medium ${p.admin ? "text-amber-400" : "text-zinc-400"}`}>
+                            {p.displayName}
+                          </span>
+                          {Number(p.uid) === uid && (
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-600">You</span>
+                          )}
+                        </div>
+                      </div>
+                      {isAdmin && !p.admin && Number(p.uid) !== uid && (
+                        <button
+                          type="button"
+                          onClick={() => handleKick(p.socketId)}
+                          title="Kick"
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-zinc-700 transition hover:bg-red-500/10 hover:text-red-400"
+                        >
+                          <UserMinus size={12} />
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
-              ) : (
-                <div className="flex flex-col items-center py-4 sm:py-3">
-                  <div className="flex h-11 w-11 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-surface-3">
-                    <Users size={18} className="text-zinc-600" />
-                  </div>
-                  <p className="mt-2 text-[12px] sm:text-[11px] text-zinc-500">Waiting for others...</p>
-                </div>
-              )}
-              {micStatus && (
-                <p className="mt-3 text-center text-[11px] sm:text-[10px] text-zinc-600">{micStatus}</p>
               )}
             </div>
           </div>
 
           {showVolume && (
-            <div className="mt-3 flex w-full items-center gap-2.5 rounded-xl border border-zinc-800/50 bg-surface-2 px-3 py-3 sm:py-2.5">
-              <Volume2 size={14} className="shrink-0 text-zinc-500" />
+            <div className="mt-2.5 flex w-full items-center gap-3 rounded-xl bg-[#0c0c10] px-4 py-3 ring-1 ring-white/[0.04]">
+              <Volume2 size={14} className="shrink-0 text-zinc-600" />
               <input
                 type="range"
                 min="0"
                 max="200"
                 value={micVolume}
                 onChange={handleVolumeChange}
-                className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-zinc-700 accent-accent"
+                className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-zinc-800 accent-accent"
               />
-              <span className="w-8 shrink-0 text-right text-[11px] sm:text-[10px] text-zinc-500">{micVolume}%</span>
+              <span className="w-9 shrink-0 text-right text-[11px] text-zinc-600">{micVolume}%</span>
             </div>
           )}
 
-          <div className="mt-3 flex items-center justify-center gap-3 sm:gap-2.5 pb-[env(safe-area-inset-bottom)]">
+          <div className="mt-3 flex items-center justify-center gap-3.5 pb-[env(safe-area-inset-bottom)]">
             <button
               type="button"
               onClick={() => setShowVolume((v) => !v)}
               title="Mic volume"
-              className={`flex h-12 w-12 sm:h-11 sm:w-11 items-center justify-center rounded-full transition ${
+              className={`flex h-12 w-12 items-center justify-center rounded-full backdrop-blur-md transition ${
                 showVolume
-                  ? "border border-accent/30 bg-accent/10 text-accent"
-                  : "border border-zinc-800/50 bg-surface-2 text-zinc-500 hover:bg-zinc-800"
+                  ? "bg-white/15 text-white ring-1 ring-white/20 shadow-lg shadow-white/5"
+                  : "bg-white/[0.06] text-zinc-400 ring-1 ring-white/[0.08] hover:bg-white/[0.1] hover:text-zinc-300"
               }`}
             >
-              <Volume2 size={17} />
+              <Volume2 size={18} />
             </button>
             <button
               type="button"
               onClick={toggleMic}
               disabled={!audioTrackRef.current || joining}
               title={micEnabled ? "Mute" : "Unmute"}
-              className={`flex h-12 w-12 sm:h-11 sm:w-11 items-center justify-center rounded-full transition ${
+              className={`flex h-14 w-14 items-center justify-center rounded-full backdrop-blur-md transition ${
                 micActive
-                  ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
-                  : "bg-surface-2 text-zinc-500 hover:bg-zinc-800"
-              } border border-zinc-800/50 disabled:opacity-30`}
+                  ? "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-400/30 shadow-lg shadow-emerald-500/20 hover:bg-emerald-500/25"
+                  : "bg-white/15 text-white ring-1 ring-white/20 shadow-lg shadow-white/5 hover:bg-white/20"
+              } disabled:opacity-30`}
             >
-              {micEnabled ? <Mic size={17} /> : <MicOff size={17} />}
+              {micEnabled ? <Mic size={22} /> : <MicOff size={22} />}
             </button>
             <button
               type="button"
               onClick={handleLeave}
               title="Leave room"
-              className="flex h-12 w-12 sm:h-11 sm:w-11 items-center justify-center rounded-full border border-red-500/20 bg-red-500/10 text-red-400 transition hover:bg-red-500/20"
+              className="flex h-14 w-14 items-center justify-center rounded-full backdrop-blur-md bg-red-500/20 text-red-400 ring-1 ring-red-400/30 shadow-lg shadow-red-500/20 transition hover:bg-red-500/25"
             >
-              <PhoneOff size={17} />
+              <PhoneOff size={22} />
             </button>
             <button
               type="button"
               onClick={() => setShowChat(true)}
-              className="relative flex h-12 w-12 sm:h-11 sm:w-11 items-center justify-center rounded-full border border-zinc-800/50 bg-surface-2 text-zinc-500 transition hover:bg-zinc-800 lg:hidden"
+              className="relative flex h-12 w-12 items-center justify-center rounded-full backdrop-blur-md bg-white/[0.06] text-zinc-400 ring-1 ring-white/[0.08] transition hover:bg-white/[0.1] hover:text-zinc-300 lg:hidden"
             >
-              <MessageSquare size={17} />
+              <MessageSquare size={18} />
               {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-white">
+                <span className="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white shadow-lg shadow-red-500/30">
                   {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
               )}
@@ -548,18 +591,18 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
           </div>
         </div>
 
-        <div className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-zinc-800/50 bg-surface-2 lg:w-96 xl:w-[28rem] lg:flex-1 ${showChat ? "flex" : "hidden lg:flex"}`}>
-          <div className="flex items-center justify-between border-b border-zinc-800/50 px-3 py-2.5 sm:px-4">
-            <div className="flex items-center gap-2">
-              <MessageSquare size={13} className="text-zinc-500" />
-              <h2 className="text-[12px] sm:text-[11px] font-semibold text-zinc-400">Chat</h2>
+        <div className={`flex min-h-0 flex-1 flex-col overflow-hidden bg-[#0c0c10] rounded-2xl ring-1 ring-white/[0.04] lg:w-96 xl:w-[28rem] lg:flex-1 ${showChat ? "flex" : "hidden lg:flex"}`}>
+          <div className="flex items-center justify-between border-b border-white/[0.04] px-4 py-3">
+            <div className="flex items-center gap-2.5">
+              <MessageSquare size={14} className="text-zinc-600" />
+              <h2 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Chat</h2>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               {isAdmin && (
                 <button
                   type="button"
                   onClick={clearChat}
-                  className="flex h-7 items-center gap-1 rounded px-2 text-[11px] sm:text-[10px] text-zinc-500 transition hover:bg-red-500/10 hover:text-red-400"
+                  className="flex h-7 items-center gap-1.5 rounded-xl px-2.5 text-[10px] text-zinc-600 transition hover:bg-red-500/10 hover:text-red-400"
                 >
                   Clear
                 </button>
@@ -567,25 +610,21 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
               <button
                 type="button"
                 onClick={() => setShowChat(false)}
-                className="flex h-7 w-7 items-center justify-center rounded text-zinc-500 hover:text-zinc-300 lg:hidden"
+                className="flex h-7 w-7 items-center justify-center rounded-xl text-zinc-600 hover:text-zinc-400 lg:hidden"
               >
                 <ArrowLeft size={14} />
               </button>
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-3 py-3 sm:px-4 min-h-0">
+          <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0">
             {messages.length > 0 ? (
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 {messages.map((msg, i) => {
                   if (msg.system) {
                     return (
                       <div key={msg.id} className="flex justify-center py-1.5 animate-fade-in">
-                        <span className={`rounded-full px-3 py-1 text-[11px] font-medium ${
-                          msg.type === "join"
-                            ? "bg-emerald-500/10 text-emerald-400/80"
-                            : "bg-red-500/10 text-red-400/80"
-                        }`}>
+                        <span className="text-[10px] text-zinc-700">
                           {msg.text}
                         </span>
                       </div>
@@ -601,30 +640,30 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
                     || messages[i - 1]?.displayName !== msg.displayName;
 
                   return (
-                    <div key={msg.id} className={`animate-fade-in ${isSelf ? "flex justify-end" : "flex justify-start"} ${showHeader ? "mt-2.5" : "mt-0.5"}`}>
-                      <div className={`max-w-[85%] ${isSelf ? "items-end" : "items-start"} flex flex-col`}>
+                    <div key={msg.id} className={`animate-fade-in ${isSelf ? "flex justify-end" : "flex justify-start"} ${showHeader ? "mt-3" : "mt-1"}`}>
+                      <div className={`max-w-[85%] min-w-0 ${isSelf ? "items-end" : "items-start"} flex flex-col`}>
                         {showHeader && (
-                          <div className={`flex items-center gap-1.5 mb-0.5 ${isSelf ? "flex-row-reverse" : ""}`}>
-                            {!isSelf && senderAvatar && (
-                              <span className="text-sm leading-none">{senderAvatar}</span>
+                          <div className={`inline-flex items-center gap-1.5 mb-1 ${isSelf ? "flex-row-reverse ml-auto" : ""}`}>
+                            {senderAvatar && (
+                              <span className="text-xs leading-none">{senderAvatar}</span>
                             )}
                             {isSenderAdmin && (
-                              <Crown size={10} className="text-amber-400" />
+                              <Crown size={8} className="text-amber-500/60" />
                             )}
-                            <span className={`text-[11px] font-semibold ${isSenderAdmin ? "text-amber-400" : "text-zinc-300"}`}>
+                            <span className={`text-[10px] font-medium ${isSenderAdmin ? "text-amber-500/70" : "text-zinc-500"}`}>
                               {isSelf ? "You" : msg.displayName}
                             </span>
-                            <span className="text-[9px] text-zinc-600">
+                            <span className="text-[9px] text-zinc-700">
                               {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                             </span>
                           </div>
                         )}
-                        <div className={`break-words rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed ${
+                        <div className={`break-words break-all rounded-2xl px-3.5 py-2 text-[13px] leading-relaxed ${
                           isSenderAdmin && !isSelf
-                            ? "bg-amber-500/10 text-zinc-200 rounded-bl-md ring-1 ring-amber-500/20"
+                            ? "bg-amber-500/5 text-zinc-300 rounded-bl-md ring-1 ring-amber-500/10"
                             : isSelf
-                              ? "bg-accent/15 text-zinc-200 rounded-br-md"
-                              : "bg-zinc-800/60 text-zinc-300 rounded-bl-md"
+                              ? "bg-accent/10 text-zinc-300 rounded-br-md"
+                              : "bg-white/[0.03] text-zinc-400 rounded-bl-md ring-1 ring-white/[0.04]"
                         }`}>
                           {renderMessageText(msg.text)}
                         </div>
@@ -634,25 +673,25 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
                 })}
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-10">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-zinc-800/50">
-                  <MessageSquare size={18} className="text-zinc-600" />
+              <div className="flex flex-col items-center justify-center py-14">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.03] ring-1 ring-white/[0.04]">
+                  <MessageSquare size={18} className="text-zinc-700" />
                 </div>
-                <p className="mt-3 text-xs text-zinc-500">No messages yet</p>
-                <p className="mt-0.5 text-[10px] text-zinc-600">Say something to start the conversation</p>
+                <p className="mt-3 text-xs font-medium text-zinc-600">No messages yet</p>
+                <p className="mt-1 text-[10px] text-zinc-700">Say something to start</p>
               </div>
             )}
             <div ref={chatEndRef} />
           </div>
 
           {typingUsers.length > 0 && (
-            <div className="flex items-center gap-2 px-3 py-2 sm:px-4">
+            <div className="flex items-center gap-2.5 px-4 py-2">
               <div className="flex gap-1">
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500" style={{ animationDelay: "0ms" }} />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500" style={{ animationDelay: "150ms" }} />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-500" style={{ animationDelay: "300ms" }} />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-600" style={{ animationDelay: "0ms" }} />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-600" style={{ animationDelay: "150ms" }} />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-600" style={{ animationDelay: "300ms" }} />
               </div>
-              <p className="text-[11px] text-zinc-500">
+              <p className="text-[10px] text-zinc-600">
                 {typingUsers.length === 1
                   ? `${typingUsers[0]} is typing`
                   : `${typingUsers.join(" and ")} are typing`}
@@ -660,12 +699,12 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
             </div>
           )}
 
-          <form onSubmit={sendMessage} className="relative flex items-center gap-2 border-t border-zinc-800/50 px-3 py-3 sm:px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:pb-3">
+          <form onSubmit={sendMessage} className="relative flex items-center gap-2.5 border-t border-white/[0.04] px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:pb-3">
               {inputFocused && (
                 <button
                   type="button"
                   onMouseDown={(e) => { e.preventDefault(); handlePaste(); }}
-                  className="absolute -top-10 left-3 flex items-center gap-1.5 rounded-lg bg-zinc-800 px-3 py-1.5 text-[11px] text-zinc-400 shadow-lg ring-1 ring-zinc-700/50 transition hover:bg-zinc-700 hover:text-zinc-200 animate-fade-in"
+                  className="absolute -top-11 left-4 flex items-center gap-2 rounded-xl bg-[#0c0c10] px-3 py-2 text-[10px] text-zinc-500 ring-1 ring-white/[0.06] transition hover:text-zinc-400 animate-fade-in"
                 >
                   <Clipboard size={12} />
                   Paste
@@ -699,77 +738,17 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
                 }}
                 placeholder="Type a message..."
                 maxLength={500}
-                className="max-h-32 min-w-0 flex-1 resize-none overflow-y-auto rounded-xl bg-zinc-800/60 px-4 py-3 sm:py-2.5 text-[15px] sm:text-sm text-zinc-200 outline-none placeholder:text-zinc-500 focus:ring-1 focus:ring-accent/30"
+                className="max-h-28 min-w-0 flex-1 resize-none overflow-y-auto rounded-2xl bg-white/[0.03] px-4 py-2.5 text-sm text-zinc-300 outline-none placeholder:text-zinc-700 ring-1 ring-white/[0.04] focus:ring-accent/20"
               />
             <button
               type="submit"
               disabled={!chatInput.trim()}
-              className="flex h-11 w-11 sm:h-10 sm:w-10 items-center justify-center shrink-0 rounded-xl bg-accent text-white transition hover:bg-accent/90 disabled:opacity-30"
+              className="flex h-10 w-10 items-center justify-center shrink-0 rounded-2xl bg-accent/15 text-accent transition hover:bg-accent/20 disabled:opacity-20"
             >
-              <Send size={17} />
+              <Send size={15} />
             </button>
           </form>
         </div>
-
-        {showUserList && (
-          <div className="fixed inset-0 z-40 bg-surface-2 lg:relative lg:z-auto lg:bg-transparent flex flex-col overflow-hidden lg:flex-none lg:w-64 lg:rounded-2xl lg:border lg:border-zinc-800/50">
-            <div className="flex items-center justify-between border-b border-zinc-800/50 px-3 py-2.5">
-              <div className="flex items-center gap-2">
-                <Users size={13} className="text-zinc-500" />
-                <h2 className="text-[12px] sm:text-[11px] font-semibold text-zinc-400">Members ({participants.length})</h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowUserList(false)}
-                className="flex h-8 w-8 lg:h-5 lg:w-5 items-center justify-center rounded text-zinc-500 hover:text-zinc-300"
-              >
-                <X size={14} />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto px-3 py-2 min-h-0">
-              <div className="space-y-1">
-                {participants.map((p) => (
-                  <div key={p.socketId} className="flex items-center gap-3 rounded-lg px-2 py-2.5 sm:py-2 transition hover:bg-zinc-800/40">
-                    <div className="relative">
-                      <div className={`flex h-9 w-9 sm:h-8 sm:w-8 items-center justify-center rounded-full text-sm transition duration-300 ${
-                        speakingMap[String(p.uid)] ? "speaking-glow" : ""
-                      } ${
-                        p.admin ? "bg-amber-500/15 ring-1 ring-amber-500/30" : "bg-surface-3"
-                      }`}>
-                        {p.avatar || p.displayName.charAt(0).toUpperCase()}
-                      </div>
-                      {p.admin && (
-                        <div className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500">
-                          <Crown size={7} className="text-white" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1">
-                        <span className={`truncate text-[12px] sm:text-[11px] font-medium ${p.admin ? "text-amber-400" : "text-zinc-300"}`}>
-                          {p.displayName}
-                        </span>
-                        {Number(p.uid) === uid && (
-                          <span className="text-[9px] sm:text-[8px] font-bold text-accent">YOU</span>
-                        )}
-                      </div>
-                    </div>
-                    {isAdmin && !p.admin && Number(p.uid) !== uid && (
-                      <button
-                        type="button"
-                        onClick={() => handleKick(p.socketId)}
-                        title="Kick"
-                        className="flex h-7 w-7 sm:h-5 sm:w-5 shrink-0 items-center justify-center rounded text-zinc-600 transition hover:bg-red-500/10 hover:text-red-400"
-                      >
-                        <UserMinus size={12} />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </main>
   );
