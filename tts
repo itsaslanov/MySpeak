@@ -1,0 +1,13 @@
+myspeak app and want a TeamSpeak-style voice announcement system. When a user connects/disconnects/switches channels (via WebSocket event), the app should announce it with text-to-speech, e.g. "Cookie has connected."
+
+Requirements:
+
+Use the browser's Web Speech API (SpeechSynthesis) for TTS, no external API keys
+Create a composable useVoiceAnnounce() that exposes an announce(text) function
+Let me configure: which events trigger speech (connect/disconnect/move), voice name, rate, pitch, volume — store these in a reactive settings object (localStorage-persisted)
+Handle the voiceschanged event properly so voice list loads reliably across browsers
+Queue announcements so overlapping events don't cut each other off
+Provide a fallback voice if the preferred one isn't available
+Include a simple settings UI component to test/change voice and toggle events on/off
+
+Give me the full composable code, the settings component, and an example of wiring it to a WebSocket onmessage handler.
