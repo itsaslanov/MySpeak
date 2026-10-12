@@ -355,6 +355,9 @@ async function loadChatFromStore() {
 
   if (error) {
     console.error("Supabase load chat error:", error.message || error);
+    console.error(
+      `Chat history will NOT persist while this is failing. Table: ${supabaseChatTable}. Code: ${error.code || "n/a"}. Hint: ${error.hint || "n/a"}`
+    );
     return;
   }
 
@@ -376,9 +379,9 @@ async function loadChatFromStore() {
 }
 
 async function persistChatMessage(groupId, msg) {
-  if (!supabase) return;
+  if (!supabase) return false;
 
-  const { error } = await supabase.from(supabaseChatTable).upsert([{
+  const row = {
     id: msg.id,
     group_id: groupId,
     display_name: msg.displayName,
@@ -386,12 +389,18 @@ async function persistChatMessage(groupId, msg) {
     timestamp: msg.timestamp,
     system: !!msg.system,
     type: msg.type || null
-  }], { onConflict: "id" });
+  };
+
+  const { error } = await supabase.from(supabaseChatTable).upsert([row], { onConflict: "id" });
 
   if (error) {
     console.error("Supabase persist chat error:", error.message || error);
     console.error("Chat table:", supabaseChatTable, "groupId:", groupId);
+    console.error("Failed row:", JSON.stringify(row));
+    console.error("Code:", error.code || "n/a", "| Details:", JSON.stringify(error.details || null), "| Hint:", error.hint || "n/a");
+    return false;
   }
+  return true;
 }
 
 async function deleteChatForGroup(groupId) {
@@ -801,6 +810,7 @@ io.on("connection", (socket) => {
 
       if (error) {
         console.error("chat:history Supabase error:", error.message || error);
+        console.error("Code:", error.code || "n/a", "| Hint:", error.hint || "n/a");
       }
 
       if (!error && data) {
