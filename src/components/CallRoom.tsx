@@ -9,6 +9,7 @@ import type { Socket } from "socket.io-client";
 import MySpeakLogo from "./MySpeakLogo";
 import VoiceWaveform from "./VoiceWaveform";
 import AdminBadge from "./AdminBadge";
+import SystemToast from "./SystemToast";
 
 AgoraRTC.setLogLevel(4);
 
@@ -70,7 +71,9 @@ const ParticipantBubble = React.memo(function ParticipantBubble({ participant, i
             isSelf
               ? "bg-gradient-to-br from-blue-500/25 to-indigo-600/15 text-blue-300 ring-1 ring-blue-500/25"
               : isParticipantAdmin
-                ? "bg-amber-500/8 text-amber-400 ring-1 ring-amber-500/15"
+                  /* /10 not /8 — Tailwind's opacity scale steps by 5, so /8
+                     silently generated nothing and the chip had no fill. */
+                  ? "bg-amber-500/10 text-amber-300 ring-1 ring-amber-500/20"
                 : "bg-white/[0.04] text-zinc-500 ring-1 ring-white/[0.05]"
           }`}
         >
@@ -128,8 +131,20 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
     if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
     errorTimerRef.current = setTimeout(() => setError(""), 3200);
   }, []);
+  // Chat-scoped warnings render inside the chat panel rather than over the
+  // whole screen: they only make sense while the chat is open, and a toast
+  // pinned to the viewport lands on the voice stage where nobody expects it.
+  const [chatToast, setChatToast] = useState("");
+  const chatToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showChatToast = React.useCallback((text: string) => {
+    setChatToast(text);
+    if (chatToastTimerRef.current) clearTimeout(chatToastTimerRef.current);
+    chatToastTimerRef.current = setTimeout(() => setChatToast(""), 3200);
+  }, []);
+
   React.useEffect(() => () => {
     if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+    if (chatToastTimerRef.current) clearTimeout(chatToastTimerRef.current);
   }, []);
   const [micVolume, setMicVolume] = useState(100);
   const [showVolume, setShowVolume] = useState(false);
@@ -210,6 +225,8 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
     } else {
       // Don't leave a pending confirm armed after the panel closes.
       setConfirmClear(false);
+      // Same for a warning that only makes sense while the chat is open.
+      setChatToast("");
     }
   }, [showChat]);
 
@@ -281,7 +298,7 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
     // Ack is required: the server rejects with a reason when the admin session
     // is missing/expired, and without a callback that failure is silent.
     socket.emit("chat:clear", { token: getAdminToken() }, (reply: { ok?: boolean; error?: string }) => {
-      if (!reply?.ok) showToast(reply?.error || "Failed to clear chat history.");
+      if (!reply?.ok) showChatToast(reply?.error || "Failed to clear chat history.");
     });
   }
 
@@ -494,7 +511,7 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
     const text = chatInput.trim();
     if (!text || !socket) return;
     socket.emit("chat:send", { text }, (reply: { ok?: boolean; error?: string }) => {
-      if (!reply?.ok) showToast(reply?.error || "Failed to send.");
+      if (!reply?.ok) showChatToast(reply?.error || "Failed to send.");
     });
     socket.emit("chat:typing", { typing: false });
     if (typingTimersRef.current.self) clearTimeout(typingTimersRef.current.self);
@@ -690,7 +707,7 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
       >
         <Phone size={12} className="text-emerald-400" />
         <span className="text-[12px] font-semibold tabular-nums text-emerald-400">
-          {Math.floor(callSeconds / 60)}m
+          {Math.floor(callSeconds / 60)}m : {callSeconds % 60}s
         </span>
         {micActive && (
           <div className="flex h-4 items-center gap-[3px]">
@@ -713,22 +730,10 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
         <div className="absolute -bottom-40 right-0 h-[24rem] w-[24rem] translate-x-1/4 rounded-full bg-indigo-500/[0.05] blur-[120px]" />
       </div>
       {error && (
-        <div
-          key={error}
-          role="status"
-          aria-live="polite"
-          className="toast-pop pointer-events-none absolute left-1/2 top-[max(0.75rem,env(safe-area-inset-top))] z-50 w-[calc(100%-1.5rem)] max-w-sm -translate-x-1/2 md:top-3"
-        >
-          <div className="toast-shake flex items-center gap-3 rounded-2xl border border-amber-400/20 bg-[#141418]/90 py-2.5 pl-2.5 pr-4 shadow-[0_16px_40px_-16px_rgba(0,0,0,0.95)] ring-1 ring-white/[0.06] backdrop-blur-xl">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-400/15 ring-1 ring-inset ring-amber-400/25">
-              <AlertCircle size={14} className="text-amber-300" />
-            </span>
-            <span className="min-w-0 flex-1 text-[13px] font-medium leading-snug text-amber-50 md:text-xs">
-              {error}
-            </span>
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400/70" />
-          </div>
-        </div>
+        <SystemToast
+          message={error}
+          className="absolute inset-x-0 top-[max(0.75rem,env(safe-area-inset-top))] z-50 px-3 md:px-4"
+        />
       )}
 
       <div
@@ -739,119 +744,7 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
         }`}
       />
 
-      <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-[19rem] max-w-[86vw] flex-col border-r border-white/[0.06] bg-[#0a0a0d]/95 shadow-2xl shadow-black/60 backdrop-blur-xl transition-transform duration-300 ease-out ${
-          showMembers ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        <div className="flex shrink-0 items-center gap-2.5 border-b border-white/[0.06] px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] md:h-14 md:py-0">
-          <Link
-            to="/"
-            onClick={() => setShowMembers(false)}
-            aria-label="MySpeak — back to home"
-            className="-ml-1 flex min-w-0 flex-1 items-center gap-2.5 rounded-xl py-1 pl-1 pr-2 transition active:opacity-60"
-          >
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500/30 to-indigo-600/10 ring-1 ring-blue-500/20 md:h-8 md:w-8">
-              <MySpeakLogo className="h-6 w-6 rounded-lg" />
-            </span>
-            <span className="min-w-0">
-              <span className="block truncate text-[15px] font-semibold tracking-tight text-zinc-200 md:text-[13px]">MySpeak</span>
-              <span className="block text-[11px] text-zinc-600 md:text-[10px]">Voice rooms</span>
-            </span>
-          </Link>
-          <button
-            type="button"
-            onClick={() => setShowMembers(false)}
-            aria-label="Close menu"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-300 md:h-8 md:w-8"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto">
-
-          {participants.length > 0 && (
-            <>
-              <div className="flex items-center justify-between px-4 pb-2 pt-4">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500 md:text-[10px]">In voice</span>
-                <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-400 ring-1 ring-emerald-500/20 md:text-[10px]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  {participants.length}
-                </span>
-              </div>
-              <div className="space-y-0.5 px-2 pb-2">
-                {participants.map((p) => {
-                  const isSpeaking = !!speakingMap[String(p.uid)];
-                  return (
-                    <div
-                      key={p.socketId}
-                      className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 transition md:gap-2.5 md:py-2 ${
-                        isSpeaking ? "bg-emerald-500/[0.06]" : "hover:bg-white/[0.03]"
-                      }`}
-                    >
-                      <div className="relative shrink-0">
-                        <div
-                          className={`flex h-10 w-10 items-center justify-center rounded-full text-[13px] font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] ring-2 ring-emerald-400/25 transition md:h-8 md:w-8 md:text-[11px] ${
-                            p.admin ? "ring-amber-400/30" : ""
-                          } ${isSpeaking ? "!ring-emerald-400/70" : ""}`}
-                          style={
-                            p.admin
-                              ? { background: "linear-gradient(145deg, #4a4539, #544e41)" }
-                              : { background: identityFor(p.displayName).solid }
-                          }
-                        >
-                          {p.avatar || p.displayName.charAt(0).toUpperCase()}
-                        </div>
-                      </div>
-                      <span className={`truncate text-[15px] md:text-[13px] ${p.admin ? "font-medium text-amber-300" : "text-zinc-300"}`}>
-                        {p.displayName}
-                      </span>
-                      <span className="ml-auto flex shrink-0 items-center gap-1.5">
-                        {Number(p.uid) === uid && (
-                          <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold text-zinc-400 md:px-1.5 md:text-[9px]">You</span>
-                        )}
-                        {p.admin && <AdminBadge size={13} />}
-                        {isAdmin && !p.admin && Number(p.uid) !== uid && (
-                          <button
-                            onClick={() => handleKick(p.socketId)}
-                            aria-label="Kick user"
-                            className="flex h-6 w-6 items-center justify-center rounded-md text-zinc-600 opacity-0 transition hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100"
-                          >
-                            <UserMinus size={11} />
-                          </button>
-                        )}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="shrink-0 border-t border-white/[0.06] bg-[#0b0b0f] px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 md:pb-3">
-          <div className="mb-2.5 flex items-center gap-3 rounded-xl bg-white/[0.02] px-2.5 py-2.5 ring-1 ring-white/[0.04] md:gap-2.5 md:py-2">
-            <div className="relative shrink-0">
-              <div
-                className="flex h-10 w-10 items-center justify-center rounded-full text-[13px] font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] ring-2 ring-emerald-400/30 md:h-9 md:w-9 md:text-xs"
-                style={{ background: identityFor(displayName).solid }}
-              >
-                {avatar || displayName.charAt(0).toUpperCase()}
-              </div>
-              <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-[#0b0b0f]" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[15px] font-semibold text-zinc-100 md:text-[13px]">{displayName}</div>
-              <div className="flex items-center gap-1 text-[11px] text-emerald-400/80 md:text-[10px]">
-                <span className="h-1 w-1 rounded-full bg-emerald-400" />
-                Voice connected
-              </div>
-            </div>
-          </div>
-          {renderVoiceControls("sm")}
-        </div>
-      </aside>
+   
 
       <div className="flex min-h-0 flex-1 flex-col">
         {/* Header — native iOS navigation bar, one line on mobile, identity + island + status on desktop */}
@@ -1136,7 +1029,7 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
                   type="button"
                   onClick={() => {
                     if (!isAdmin) {
-                      showToast("Only admins can clear chat history.");
+                      showChatToast("Only admins can clear chat history.");
                       return;
                     }
                     if (confirmClear) {
@@ -1180,6 +1073,14 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
               >
                 <X size={15} />
               </button>
+
+              {/* Chat-scoped warning. Anchored to the header's bottom edge so it reads as
+                  belonging to the chat, and spans the panel so it is
+                  full-width on mobile instead of a floating centred pill. */}
+              <SystemToast
+                message={chatToast}
+                className="absolute inset-x-0 top-full z-30 px-3 pt-2 md:px-4"
+              />
             </div>
 
             <div
