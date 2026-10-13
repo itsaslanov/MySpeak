@@ -40,6 +40,7 @@ const supabaseServiceRoleKey =
 const supabaseTable = process.env.SUPABASE_TABLE || "MySpeak";
 const supabaseAdminTable = process.env.SUPABASE_ADMIN_TABLE || "admin_auth";
 const supabaseChatTable = process.env.SUPABASE_CHAT_TABLE || "MySpeakChat";
+
 const supabase =
   supabaseUrl && supabaseServiceRoleKey
     ? createClient(supabaseUrl, supabaseServiceRoleKey)
@@ -341,41 +342,67 @@ async function deleteGroupRecord(groupId) {
   }
 }
 
-async function loadChatFromStore() {
-  if (!supabase) {
-    console.log("No Supabase configured, skipping chat load.");
-    return;
+/**
+ * Loads one room's chat into the in-memory buffer. Called lazily per room on
+ * the first chat:history request for it, rather than preloading every room at
+ * boot. With unlimited history, preloading everything would hold the entire
+ * database in RAM forever; this keeps only the rooms people actually use.
+ */
+async function loadChatForGroup(groupId) {
+  if (!supabase) return [];
+  if (!chatMessages.has(groupId)) chatMessages.set(groupId, []);
+
+  // PostgREST caps a single response at db-max-rows (1000 by default) even
+  // without an explicit .limit(), so page through with .range() to get the
+  // room's full history instead of silently losing the oldest messages.
+  const PAGE = 1000;
+  const rows = [];
+  let offset = 0;
+  let truncated = false;
+
+  try {
+    for (;;) {
+      const { data, error } = await supabase
+        .from(supabaseChatTable)
+        .select("*")
+        .eq("group_id", groupId)
+        .order("timestamp", { ascending: false })
+        .range(offset, offset + PAGE - 1);
+
+      if (error) {
+        console.error("Supabase load chat error:", error.message || error);
+        console.error(
+          `Chat history will NOT persist while this is failing. Table: ${supabaseChatTable}. Code: ${error.code || "n/a"}. Hint: ${error.hint || "n/a"}`
+        );
+        return chatMessages.get(groupId) || [];
+      }
+
+      rows.push(...(data || []));
+      if (!data || data.length < PAGE) break;
+      offset += PAGE;
+    }
+  } catch (err) {
+    console.error("Supabase load chat paging error:", err?.message || err);
+    truncated = true;
   }
 
-  const { data, error } = await supabase
-    .from(supabaseChatTable)
-    .select("*")
-    .order("timestamp", { ascending: true })
-    .limit(500);
+  chatMessages.set(groupId, rows.map((row) => ({
+    id: String(row.id || ""),
+    displayName: row.display_name || "",
+    text: row.text || "",
+    timestamp: row.timestamp || new Date().toISOString(),
+    system: !!row.system,
+    type: row.type || undefined
+  })));
 
-  if (error) {
-    console.error("Supabase load chat error:", error.message || error);
-    console.error(
-      `Chat history will NOT persist while this is failing. Table: ${supabaseChatTable}. Code: ${error.code || "n/a"}. Hint: ${error.hint || "n/a"}`
-    );
-    return;
+  // Rows came back newest-first; keep the buffer chronological.
+  chatMessages.get(groupId).sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+  if (truncated) {
+    console.warn(`chat:history for group ${groupId} returned partial data after a paging error.`);
   }
-
-  chatMessages.clear();
-  for (const row of data || []) {
-    const groupId = String(row.group_id || "");
-    if (!groupId) continue;
-    if (!chatMessages.has(groupId)) chatMessages.set(groupId, []);
-    chatMessages.get(groupId).push({
-      id: String(row.id || ""),
-      displayName: row.display_name || "",
-      text: row.text || "",
-      timestamp: row.timestamp || new Date().toISOString(),
-      system: !!row.system,
-      type: row.type || undefined
-    });
-  }
-  console.log(`Loaded ${(data || []).length} chat messages from Supabase.`);
+  return chatMessages.get(groupId);
 }
 
 async function persistChatMessage(groupId, msg) {
@@ -493,7 +520,6 @@ function leaveGroup(socket) {
       if (!chatMessages.has(group.id)) chatMessages.set(group.id, []);
       const roomMessages = chatMessages.get(group.id);
       roomMessages.push(sysMsg);
-      if (roomMessages.length > 100) roomMessages.splice(0, roomMessages.length - 100);
       persistChatMessage(group.id, sysMsg);
       io.to(group.id).emit("chat:message", sysMsg);
     }
@@ -782,7 +808,6 @@ io.on("connection", (socket) => {
     if (!chatMessages.has(group.id)) chatMessages.set(group.id, []);
     const roomMessages = chatMessages.get(group.id);
     roomMessages.push(joinMsg);
-    if (roomMessages.length > 100) roomMessages.splice(0, roomMessages.length - 100);
     persistChatMessage(group.id, joinMsg);
     io.to(group.id).emit("chat:message", joinMsg);
 
@@ -801,30 +826,12 @@ io.on("connection", (socket) => {
     const groupId = String(payload?.groupId || "");
 
     if (supabase) {
-      const { data, error } = await supabase
-        .from(supabaseChatTable)
-        .select("*")
-        .eq("group_id", groupId)
-        .order("timestamp", { ascending: true })
-        .limit(100);
-
-      if (error) {
-        console.error("chat:history Supabase error:", error.message || error);
-        console.error("Code:", error.code || "n/a", "| Hint:", error.hint || "n/a");
-      }
-
-      if (!error && data) {
-        console.log(`chat:history loaded ${data.length} messages for group ${groupId} from Supabase`);
-        const messages = data.map((row) => ({
-          id: String(row.id || ""),
-          displayName: row.display_name || "",
-          text: row.text || "",
-          timestamp: row.timestamp || "",
-          system: !!row.system,
-          type: row.type || undefined
-        }));
-        return reply({ ok: true, messages });
-      }
+      // Full history, no cap. loadChatForGroup reads newest-first, stores the
+      // room buffer chronologically, and returns the previous buffer on error
+      // so a database blip degrades gracefully instead of wiping the room.
+      const messages = await loadChatForGroup(groupId);
+      console.log(`chat:history loaded ${messages.length} messages for group ${groupId}`);
+      return reply({ ok: true, messages });
     }
 
     console.log(`chat:history fallback to memory for group ${groupId}, ${(chatMessages.get(groupId) || []).length} messages`);
@@ -857,7 +864,6 @@ io.on("connection", (socket) => {
     if (!chatMessages.has(group.id)) chatMessages.set(group.id, []);
     const roomMessages = chatMessages.get(group.id);
     roomMessages.push(msg);
-    if (roomMessages.length > 100) roomMessages.splice(0, roomMessages.length - 100);
 
     persistChatMessage(group.id, msg);
     io.to(group.id).emit("chat:message", msg);
@@ -976,7 +982,6 @@ io.on("connection", (socket) => {
     if (!chatMessages.has(group.id)) chatMessages.set(group.id, []);
     const roomMessages = chatMessages.get(group.id);
     roomMessages.push(sysMsg);
-    if (roomMessages.length > 100) roomMessages.splice(0, roomMessages.length - 100);
     persistChatMessage(group.id, sysMsg);
     io.to(group.id).emit("chat:message", sysMsg);
 
@@ -1008,7 +1013,8 @@ if (fs.existsSync(indexPath)) {
 
   try {
     await loadGroupsFromStore();
-    await loadChatFromStore();
+    // Chat is loaded lazily per room in loadChatForGroup() on first
+    // chat:history, so the whole chat database is never held in memory.
   } catch (error) {
     console.error("Failed to initialize Supabase data:", error?.message || error);
   }

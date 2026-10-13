@@ -23,5 +23,23 @@
       </style>
     </div>
     <script type="module" src="/src/main.tsx"></script>
+    <!--
+      Buy Me a Coffee official widget. It stays here rather than being injected
+      from React because the vendor builds its UI inside a DOMContentLoaded
+      listener, so the tag must exist before that event fires. BmcGate in
+      App.tsx reveals it on /donate and hides it on every other route.
+    -->
+    <script
+      data-name="BMC-Widget"
+      data-cfasync="false"
+      src="https://cdnjs.buymeacoffee.com/1.0.0/widget.prod.min.js"
+      data-id="myspeak.team"
+      data-description="Support me on Buy me a coffee!"
+      data-message=""
+      data-color="#5F7FFF"
+      data-position="Right"
+      data-x_margin="18"
+      data-y_margin="18"
+    ></script>
   </body>
 </html>
