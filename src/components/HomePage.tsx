@@ -232,7 +232,7 @@ export default function HomePage() {
                 Enter the passcode to join <span className="font-medium text-zinc-300">{passcodeModal.name}</span>
               </p>
               <p className="mt-2 text-xs text-zinc-500">
-                Don't have it? <a href="https://t.me/asesolo" target="_blank" rel="noopener noreferrer" className="font-medium text-accent hover:underline">Ask admin</a>
+                Don't have it? <a href="https://t.me/oazizcc" target="_blank" rel="noopener noreferrer" className="font-medium text-accent hover:underline">Ask admin</a>
               </p>
               {passcodeError && (
                 <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-2.5 text-sm text-red-400">
