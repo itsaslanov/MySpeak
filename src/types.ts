@@ -4,6 +4,7 @@ export interface Participant {
   displayName: string;
   avatar: string;
   admin: boolean;
+  micMuted?: boolean;
   joinedAt: string;
 }
 

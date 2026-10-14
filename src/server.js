@@ -92,6 +92,17 @@ function normalizePasscode(passcode) {
   return raw.slice(0, 20);
 }
 
+/**
+ * Stable identity for one browser (shared across its tabs). Used to keep a
+ * single active presence per person inside a room. Optional: older clients
+ * that don't send one still work, they just fall back to per-socket presence.
+ */
+function normalizeClientId(clientId) {
+  const raw = String(clientId || "").trim();
+  if (!raw) return "";
+  return raw.slice(0, 8);
+}
+
 function createGroup({ name, maxUsers, passcode }) {
   const id = createId("grp");
   const maxOrder = Array.from(groups.values()).reduce((max, g) => Math.max(max, g.order || 0), 0);
@@ -110,10 +121,25 @@ function createGroup({ name, maxUsers, passcode }) {
   return group;
 }
 
+function serializeParticipant(participant) {
+  // Sent to every client, so it must never leak the private clientId that is
+  // used to enforce one presence per person (leaking it would let someone
+  // impersonate another participant and evict them).
+  return {
+    socketId: participant.socketId,
+    uid: participant.uid,
+    displayName: participant.displayName,
+    avatar: participant.avatar,
+    admin: !!participant.admin,
+    micMuted: !!participant.micMuted,
+    joinedAt: participant.joinedAt
+  };
+}
+
 function serializeGroup(group) {
-  const participants = Array.from(group.participants.values()).sort((a, b) =>
-    a.joinedAt.localeCompare(b.joinedAt)
-  );
+  const participants = Array.from(group.participants.values())
+    .sort((a, b) => a.joinedAt.localeCompare(b.joinedAt))
+    .map(serializeParticipant);
 
   return {
     id: group.id,
@@ -529,6 +555,48 @@ function leaveGroup(socket) {
   broadcastGroups();
 }
 
+/**
+ * Drops a single participant from a room without the "left the group" chatter.
+ * When the same person rejoins (a second tab, a reload racing the old socket's
+ * disconnect, or a reconnect), the stale session is evicted silently and the
+ * newest connection takes over, so one person can never occupy two seats.
+ */
+function evictParticipant(group, targetSocketId) {
+  const participant = group.participants.get(targetSocketId);
+  if (!participant) {
+    return false;
+  }
+
+  group.participants.delete(targetSocketId);
+  sockets.delete(targetSocketId);
+
+  const targetSocket = io.sockets.sockets.get(targetSocketId);
+  if (targetSocket) {
+    targetSocket.leave(group.id);
+    targetSocket.emit("presence:replaced", { groupId: group.id });
+  }
+  return true;
+}
+
+/**
+ * Removes every other presence in `group` that belongs to the same browser as
+ * `clientId`. Returns how many stale sessions were evicted.
+ */
+function evictClientSessions(group, clientId, keepSocketId) {
+  if (!clientId) {
+    return 0;
+  }
+
+  let evicted = 0;
+  for (const [socketId, participant] of Array.from(group.participants.entries())) {
+    if (socketId === keepSocketId) continue;
+    if (participant.clientId && participant.clientId === clientId) {
+      if (evictParticipant(group, socketId)) evicted += 1;
+    }
+  }
+  return evicted;
+}
+
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
@@ -762,7 +830,9 @@ io.on("connection", (socket) => {
     const uid = Number(payload?.uid);
     const passcode = String(payload?.passcode || "");
     const adminToken = String(payload?.adminToken || "");
-    const avatar = String(payload?.avatar || "").slice(0, 8);
+    const avatar = String(payload?.avatar || "").slice(0, 32);
+    const clientId = normalizeClientId(payload?.clientId);
+    const micMuted = !!payload?.micMuted;
     const isAdmin = !!verifyAdminSession(adminToken);
 
     if (!group) {
@@ -777,17 +847,37 @@ io.on("connection", (socket) => {
       return reply({ ok: false, error: "Wrong passcode." });
     }
 
-    if (group.participants.size >= group.maxUsers) {
+    // One person, one seat. A user who opens the room link in a second tab (or
+    // whose old socket is still lingering after a reload/reconnect) must not
+    // appear as a second participant — otherwise they can talk to themselves.
+    // The newest connection takes over: the previous session is evicted and
+    // told it was replaced, and their own old seat does not count against the
+    // room capacity.
+    let ownSessions = 0;
+    if (clientId) {
+      for (const [socketId, participant] of group.participants) {
+        if (socketId !== socket.id && participant.clientId === clientId) ownSessions += 1;
+      }
+    }
+    const selfInGroup = group.participants.has(socket.id) ? 1 : 0;
+
+    // Check capacity before leaving any current room, so a rejected join never
+    // kicks a user out of the room they were already in.
+    if (group.participants.size - ownSessions - selfInGroup >= group.maxUsers) {
       return reply({ ok: false, error: "This group is full." });
     }
 
     leaveGroup(socket);
+    const replaced = evictClientSessions(group, clientId, socket.id) > 0;
+
     socket.join(group.id);
     group.participants.set(socket.id, {
       socketId: socket.id,
       uid,
       displayName,
       avatar,
+      clientId,
+      micMuted,
       admin: isAdmin,
       joinedAt: new Date().toISOString()
     });
@@ -797,19 +887,22 @@ io.on("connection", (socket) => {
     io.to(group.id).emit("presence:update", serialized);
     broadcastGroups();
 
-    const joinMsg = {
-      id: `${Date.now()}-sys`,
-      displayName: "",
-      text: `${displayName} joined the group`,
-      timestamp: new Date().toISOString(),
-      system: true,
-      type: "join"
-    };
-    if (!chatMessages.has(group.id)) chatMessages.set(group.id, []);
-    const roomMessages = chatMessages.get(group.id);
-    roomMessages.push(joinMsg);
-    persistChatMessage(group.id, joinMsg);
-    io.to(group.id).emit("chat:message", joinMsg);
+    // A takeover by the same person isn't a real join, so don't announce it.
+    if (!replaced) {
+      const joinMsg = {
+        id: `${Date.now()}-sys`,
+        displayName: "",
+        text: `${displayName} joined the group`,
+        timestamp: new Date().toISOString(),
+        system: true,
+        type: "join"
+      };
+      if (!chatMessages.has(group.id)) chatMessages.set(group.id, []);
+      const roomMessages = chatMessages.get(group.id);
+      roomMessages.push(joinMsg);
+      persistChatMessage(group.id, joinMsg);
+      io.to(group.id).emit("chat:message", joinMsg);
+    }
 
     return reply({ ok: true, group: serialized });
   });
@@ -819,6 +912,27 @@ io.on("connection", (socket) => {
     if (typeof respond === "function") {
       respond({ ok: true });
     }
+  });
+
+  // Live mute state. Broadcast over the socket rather than relying on Agora so
+  // it works even for people whose voice never connected (bad mic, denied
+  // permission), and so others can see at a glance who is muted.
+  socket.on("presence:mic", (payload) => {
+    const active = sockets.get(socket.id);
+    if (!active) return;
+
+    const group = groups.get(active.groupId);
+    if (!group) return;
+
+    const participant = group.participants.get(socket.id);
+    if (!participant) return;
+
+    const muted = !!payload?.muted;
+    if (participant.micMuted === muted) return;
+
+    participant.micMuted = muted;
+    io.to(group.id).emit("presence:update", serializeGroup(group));
+    broadcastGroups();
   });
 
   socket.on("chat:history", async (payload, respond) => {
@@ -924,7 +1038,7 @@ io.on("connection", (socket) => {
     if (!newName) return reply({ ok: false, error: "Name cannot be empty." });
 
     participant.displayName = newName;
-    if (typeof payload?.avatar === "string") participant.avatar = payload.avatar.slice(0, 8);
+    if (typeof payload?.avatar === "string") participant.avatar = payload.avatar.slice(0, 32);
 
     const serialized = serializeGroup(group);
     io.to(group.id).emit("presence:update", serialized);

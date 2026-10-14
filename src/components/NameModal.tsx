@@ -1,26 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { User, X, Check } from "lucide-react";
+import Avatar from "./Avatar";
+import { MEMOJI_OPTIONS } from "../lib/avatar";
 
 interface Props {
   onSave: (name: string, avatar: string) => void;
   onCancel?: () => void;
+  onAvatarPick?: (avatar: string) => void;
   initialName: string;
   initialAvatar: string;
 }
-
-const AVATARS = [
-  "🔥","⚡","🌊","🚀","💎","🎯","🎮","🎧",
-  "🎸","🎹","⚽","🏀","🎨","🧠","💪","👻",
-  "💀","🎃","🌈","⭐","🌙","☀️","❄️","🌊",
-  "🐱","🐶","🦊","🐻","🦁","🐸","🦄","🐧",
-  "🦅","🐺","🐙","🦋","🐢","🐝","👑","🫡",
-];
 
 const MAX_NAME = 24;
 
 export default function NameModal({
   onSave,
   onCancel,
+  onAvatarPick,
   initialName,
   initialAvatar,
 }: Props) {
@@ -96,8 +92,8 @@ export default function NameModal({
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 pb-2 sm:space-y-5 sm:px-6">
           {/* Avatar Preview */}
           <div className="flex justify-center">
-            <div className="flex h-24 w-24 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.06] text-5xl backdrop-blur-sm sm:h-20 sm:w-20">
-              {avatar}
+            <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border border-white/[0.1] bg-white/[0.06] text-5xl backdrop-blur-sm sm:h-20 sm:w-20">
+              <Avatar value={avatar} />
             </div>
           </div>
 
@@ -141,26 +137,26 @@ export default function NameModal({
               <span className="text-[13px] font-medium text-zinc-400 sm:text-sm">
                 Choose Avatar
               </span>
-              <span className="text-[11px] text-zinc-600">40 options</span>
+              <span className="text-[11px] text-zinc-600">{MEMOJI_OPTIONS.length} options</span>
             </div>
             {/* auto-fill with a 46px floor guarantees a >=44pt touch target at
                 any width. A fixed column count cannot: 8 columns of 8px gaps in
                 a 335px container lands at ~35px cells. */}
             <div className="grid grid-cols-[repeat(auto-fill,minmax(46px,1fr))] gap-2">
-              {AVATARS.map((a, i) => (
+              {MEMOJI_OPTIONS.map((a, i) => (
                 <button
-                  key={`${a}-${i}`}
+                  key={a}
                   type="button"
-                  onClick={() => setAvatar(a)}
+                  onClick={() => { setAvatar(a); onAvatarPick?.(a); }}
                   aria-label={`Avatar ${i + 1}`}
                   aria-pressed={avatar === a}
-                  className={`flex aspect-square w-full items-center justify-center rounded-2xl text-2xl transition-all duration-150 active:scale-90 sm:text-xl ${
+                  className={`flex aspect-square w-full items-center justify-center overflow-hidden rounded-2xl transition-all duration-150 active:scale-90 ${
                     avatar === a
                       ? "border border-accent/50 bg-accent/20 shadow-lg shadow-accent/15"
                       : "border border-white/[0.06] bg-white/[0.04] hover:bg-white/[0.08]"
                   }`}
                 >
-                  {a}
+                  <Avatar value={a} />
                 </button>
               ))}
             </div>

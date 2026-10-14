@@ -7,6 +7,8 @@ import MySpeakLogo from "./MySpeakLogo";
 import type { Group, Participant } from "../types";
 import NameModal from "./NameModal";
 import Footer from "./Footer";
+import Avatar from "./Avatar";
+import { DEFAULT_MEMOJI, coerceAvatar } from "../lib/avatar";
 
 interface GroupCardProps {
   group: Group;
@@ -49,10 +51,10 @@ const GroupCard = React.memo(function GroupCard({ group, displayName, onJoin, in
             {group.participants.slice(0, 3).map((p: Participant) => (
               <div
                 key={p.socketId}
-                className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-surface-2 bg-surface-3 text-[11px]"
+                className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full border-2 border-surface-2 bg-surface-3 text-[11px]"
                 title={p.displayName}
               >
-                {p.avatar || p.displayName.charAt(0).toUpperCase()}
+                <Avatar value={p.avatar || p.displayName.charAt(0).toUpperCase()} />
               </div>
             ))}
           </div>
@@ -108,7 +110,7 @@ export default function HomePage() {
   const socketRef = useRef<ReturnType<typeof io> | null>(null);
   const [editingName, setEditingName] = useState(false);
   const [isAdmin, setIsAdmin] = useState(() => !!getAdminToken());
-  const [userAvatar, setUserAvatar] = useState(() => localStorage.getItem("myspeak:avatar") || "😀");
+  const [userAvatar, setUserAvatar] = useState(() => coerceAvatar(localStorage.getItem("myspeak:avatar")));
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -164,6 +166,13 @@ export default function HomePage() {
     setEditingName(false);
   }
 
+  // Avatar applies the moment it's tapped — not only on Save — so a pick is
+  // never lost if the person joins a room without pressing Save first.
+  function handleAvatarPick(avatar: string) {
+    localStorage.setItem("myspeak:avatar", avatar);
+    setUserAvatar(avatar);
+  }
+
   function resetDisplayName() {
     setEditingName(true);
   }
@@ -213,9 +222,10 @@ export default function HomePage() {
       {(!displayName || editingName) && (
         <NameModal
           onSave={saveDisplayName}
+          onAvatarPick={handleAvatarPick}
           onCancel={displayName ? cancelEditName : undefined}
           initialName={editingName ? displayName : ""}
-          initialAvatar={editingName ? (localStorage.getItem("myspeak:avatar") || "😀") : "😀"}
+          initialAvatar={editingName ? coerceAvatar(localStorage.getItem("myspeak:avatar")) : DEFAULT_MEMOJI}
         />
       )}
 
@@ -296,7 +306,9 @@ export default function HomePage() {
                 onClick={() => resetDisplayName()}
                 className="btn-secondary flex h-10 sm:h-9 items-center gap-2 px-3 text-sm"
               >
-                <span className="text-base">{userAvatar}</span>
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full">
+                  <Avatar value={userAvatar} className="text-base" />
+                </span>
                 <span className="hidden sm:inline">{displayName}</span>
                 <Pencil size={11} className="text-zinc-600" />
               </button>
@@ -308,7 +320,9 @@ export default function HomePage() {
                   onClick={() => setMenuOpen(!menuOpen)}
                   className="btn-secondary flex h-10 sm:h-9 items-center gap-2 px-3 text-sm"
                 >
-                  <span className="text-base">{userAvatar}</span>
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full">
+                    <Avatar value={userAvatar} className="text-base" />
+                  </span>
                   <span className="hidden sm:inline">{displayName}</span>
                   <ChevronDown size={13} className={`text-zinc-500 transition-transform ${menuOpen ? "rotate-180" : ""}`} />
                 </button>
@@ -327,7 +341,9 @@ export default function HomePage() {
                       onClick={() => { setMenuOpen(false); resetDisplayName(); }}
                       className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-zinc-300 transition hover:bg-white/[0.06] hover:text-white"
                     >
-                      <span className="text-base">{userAvatar}</span>
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full">
+                        <Avatar value={userAvatar} className="text-base" />
+                      </span>
                       Change Name
                     </button>
                     <div className="my-1 h-px bg-white/[0.06]" />

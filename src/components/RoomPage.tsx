@@ -4,6 +4,7 @@ import { io } from "socket.io-client";
 import { AlertCircle } from "lucide-react";
 import { request, SOCKET_URL, hasRoomAccess, grantRoomAccess, revokeRoomAccess, getRoomPasscode } from "../lib/api";
 import type { Group, Config } from "../types";
+import { coerceAvatar } from "../lib/avatar";
 import CallRoom from "./CallRoom";
 
 export default function RoomPage() {
@@ -16,7 +17,7 @@ export default function RoomPage() {
     () => localStorage.getItem("myspeak:display-name") || ""
   );
   const [userAvatar] = useState(
-    () => localStorage.getItem("myspeak:avatar") || "😀"
+    () => coerceAvatar(localStorage.getItem("myspeak:avatar"))
   );
   const [socket, setSocket] = useState<ReturnType<typeof io> | null>(null);
   const [error, setError] = useState("");

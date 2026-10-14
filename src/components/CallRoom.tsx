@@ -1,7 +1,8 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import AgoraRTC, { IAgoraRTCClient, IMicrophoneAudioTrack } from "agora-rtc-sdk-ng";
-import { AlertCircle, ArrowLeft, ArrowUp, LogOut, MessageSquare, Mic, MicOff, Phone, PhoneOff, Trash2, UserMinus, Users, Volume2, X, Clipboard } from "lucide-react";
-import { request, getAdminToken } from "../lib/api";
+import { AlertCircle, ArrowLeft, ArrowUp, LogOut, MessageSquare, Mic, MicOff, Phone, PhoneOff, Trash2, UserMinus, Users, Volume2, WifiOff, X, Clipboard } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { request, getAdminToken, getClientId } from "../lib/api";
 import { useVoiceAnnounce } from "../hooks/useVoiceAnnounce";
 import { Link } from "react-router-dom";
 import type { Group, Participant, ChatMessage, Config, AgoraTokenResponse } from "../types";
@@ -10,6 +11,7 @@ import MySpeakLogo from "./MySpeakLogo";
 import VoiceWaveform from "./VoiceWaveform";
 import AdminBadge from "./AdminBadge";
 import SystemToast from "./SystemToast";
+import Avatar from "./Avatar";
 
 AgoraRTC.setLogLevel(4);
 
@@ -65,7 +67,7 @@ const ParticipantBubble = React.memo(function ParticipantBubble({ participant, i
     <div className="flex flex-col items-center gap-2 animate-scale-in">
       <div className="relative">
         <div
-          className={`flex h-14 w-14 items-center justify-center rounded-full text-base font-semibold transition duration-300 ${
+          className={`flex h-14 w-14 items-center justify-center overflow-hidden rounded-full text-base font-semibold transition duration-300 ${
             speaking ? "speaking-glow" : ""
           } ${
             isSelf
@@ -77,7 +79,7 @@ const ParticipantBubble = React.memo(function ParticipantBubble({ participant, i
                 : "bg-white/[0.04] text-zinc-500 ring-1 ring-white/[0.05]"
           }`}
         >
-          {participant.avatar || participant.displayName.charAt(0).toUpperCase()}
+          <Avatar value={participant.avatar || participant.displayName.charAt(0).toUpperCase()} />
         </div>
         {isParticipantAdmin && (
           <AdminBadge
@@ -164,15 +166,93 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
   // Two-tap confirm for the destructive "clear history" action.
   const [confirmClear, setConfirmClear] = useState(false);
   const confirmClearTimerRef = useRef<number | undefined>(undefined);
+  const [editingName, setEditingName] = useState(false);
+  const [newName, setNewName] = useState(displayName);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const typingTimersRef = useRef<{ self?: ReturnType<typeof setTimeout> }>({});
   const isAdmin = !!getAdminToken();
+
+  useEffect(() => {
+    setNewName(displayName);
+  }, [displayName]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [speakingMap, setSpeakingMap] = useState<Record<string, boolean>>({});
+  // Which remote uids are actually in the voice channel (user-joined) and which
+  // of them currently publish audio (user-published). Someone in the room who
+  // never shows up here has no working voice connection.
+  const [remoteVoice, setRemoteVoice] = useState<Record<string, { joined: boolean; audio: boolean }>>({});
   const [callSeconds, setCallSeconds] = useState(0);
+  // Tapping someone else in the strip swaps them into the big spotlight card.
+  // null === you are in the spotlight (the default).
+  const [pinnedUid, setPinnedUid] = useState<number | null>(null);
   const { announce } = useVoiceAnnounce();
 
   const micActive = !error && !/error|denied|unavailable|failed/i.test(micStatus) && micEnabled;
+  const voiceEnabled = Boolean(config.agoraAppId);
+
+  // Tell everyone else when your mic turns on/off. Do it over the socket so it
+  // is visible even if Agora voice never connected.
+  useEffect(() => {
+    if (!socket) return;
+    socket.emit("presence:mic", { muted: !micEnabled });
+  }, [socket, micEnabled, joined]);
+
+  type VoiceState = "live" | "muted" | "offline";
+
+  // Status for one person, from the viewer's point of view.
+  function voiceStateFor(p: Participant): VoiceState {
+    const isSelf = Number(p.uid) === uid;
+    // While we're still connecting, don't claim "no connection" for ourselves.
+    const connected = isSelf ? joined || joining : !!remoteVoice[String(p.uid)]?.joined;
+    const muted = isSelf ? !micEnabled : !!p.micMuted;
+    // Only claim "no connection" when voice is actually configured; otherwise
+    // Agora is off for everybody and the badge would be meaningless noise.
+    if (voiceEnabled && !connected) return "offline";
+    return muted ? "muted" : "live";
+  }
+
+  // One colour per state, shared by the pill, the dot and the avatar ring so
+  // the same signal never shows up in two different colours across the screen.
+  //   live    → emerald   (healthy)
+  //   muted   → neutral gray — muting is a user choice, not a warning
+  //   offline → amber     — yellow is reserved for genuine warning states
+  const VOICE_META: Record<VoiceState, { label: string; Icon: LucideIcon; chip: string; pill: string; dot: string; ring: string }> = {
+    live: {
+      label: voiceEnabled ? "LIVE" : "Mic on",
+      Icon: Mic,
+      chip: "bg-emerald-500 text-emerald-950",
+      pill: "text-emerald-200 ring-emerald-400/30 bg-emerald-500/15",
+      dot: "bg-emerald-400",
+      ring: "ring-emerald-400/30",
+    },
+    muted: {
+      label: "Muted",
+      Icon: MicOff,
+      chip: "bg-zinc-600 text-zinc-100",
+      pill: "text-zinc-200 ring-white/15 bg-white/[0.08]",
+      dot: "bg-zinc-400",
+      ring: "ring-zinc-500/50",
+    },
+    offline: {
+      label: "No connection",
+      Icon: WifiOff,
+      chip: "bg-amber-400 text-amber-950",
+      pill: "text-amber-200 ring-amber-400/30 bg-amber-500/15",
+      dot: "bg-amber-400",
+      ring: "ring-amber-500/45",
+    },
+  };
+
+  // If the person you spotlighted leaves the room, fall back to yourself.
+  useEffect(() => {
+    if (pinnedUid == null) return;
+    if (!participants.some((p) => Number(p.uid) === pinnedUid)) setPinnedUid(null);
+  }, [participants, pinnedUid]);
+
+  // Starting in a different room always begins with your own card in the spotlight.
+  useEffect(() => {
+    setPinnedUid(null);
+  }, [group.id]);
 
   useEffect(() => {
     if (!chatPinned) return;
@@ -266,6 +346,7 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
     clientRef.current = null;
     audioTrackRef.current = null;
     setJoined(false);
+    setRemoteVoice({});
   }
 
   function handleChatMessage(msg: ChatMessage) {
@@ -344,7 +425,7 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
         const timer = window.setTimeout(
           () => resolve({ ok: false, error: "Could not reach the presence server." }), 5000
         );
-        socket.emit("presence:join", { groupId: group.id, displayName, uid, passcode, adminToken: getAdminToken(), avatar }, (reply: { ok: boolean; error?: string; group?: Group }) => {
+        socket.emit("presence:join", { groupId: group.id, displayName, uid, passcode, adminToken: getAdminToken(), avatar, clientId: getClientId() }, (reply: { ok: boolean; error?: string; group?: Group }) => {
           window.clearTimeout(timer);
           resolve(reply);
         });
@@ -399,13 +480,36 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
           body: { groupId: group.id, uid }
         });
         if (disposed) return;
-        const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8", logLevel: 4 });
+        const client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
         client.enableAudioVolumeIndicator();
         clientRef.current = client;
+
+        const trackRemote = (
+          remoteUid: string | number,
+          patch: Partial<{ joined: boolean; audio: boolean }>
+        ) => {
+          if (disposed) return;
+          const key = String(remoteUid);
+          setRemoteVoice((prev) => {
+            const current = prev[key] || { joined: false, audio: false };
+            return { ...prev, [key]: { ...current, ...patch } };
+          });
+        };
+
+        // Users who were already in the channel before us.
+        client.on("published-user-list", (users) => {
+          users.forEach((u) => trackRemote(u.uid, { joined: true, audio: !!u.hasAudio }));
+        });
+        client.on("user-joined", (user) => trackRemote(user.uid, { joined: true }));
+        client.on("user-left", (user) => trackRemote(user.uid, { joined: false, audio: false }));
         client.on("user-published", async (user, mediaType) => {
+          if (mediaType === "audio") trackRemote(user.uid, { joined: true, audio: true });
           if (mediaType !== "audio") return;
           await client.subscribe(user, mediaType);
           user.audioTrack?.play();
+        });
+        client.on("user-unpublished", (user, mediaType) => {
+          if (mediaType === "audio") trackRemote(user.uid, { audio: false });
         });
         client.on("volume-indicator", (volumes: Array<{ uid: string | number; level: number }>) => {
           if (disposed) return;
@@ -453,12 +557,21 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
       setTimeout(() => onLeave(), 1500);
     }
 
+    function handleReplaced() {
+      // The same person opened this room in another tab/window and took over
+      // this session, so bow out here instead of showing up twice.
+      setError("Opened in another tab.");
+      cleanupAgora();
+      deleteTimer = setTimeout(() => onLeave(), 1500);
+    }
+
     socket?.on("presence:update", updatePresence);
     socket?.on("group:deleted", handleDeleted);
     socket?.on("chat:message", handleChatMessage);
     socket?.on("chat:typing", handleTyping);
     socket?.on("chat:cleared", handleCleared);
     socket?.on("kicked", handleKicked);
+    socket?.on("presence:replaced", handleReplaced);
     startCall();
     return () => {
       disposed = true;
@@ -471,6 +584,7 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
       socket?.off("chat:typing", handleTyping);
       socket?.off("chat:cleared", handleCleared);
       socket?.off("kicked", handleKicked);
+      socket?.off("presence:replaced", handleReplaced);
       socket?.emit("presence:leave", { groupId: group.id });
       socket?.emit("chat:typing", { typing: false });
       cleanupAgora();
@@ -634,18 +748,12 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
       : "amber";
 
   function renderStatusPill() {
-    const tone =
-      statusTone === "emerald"
-        ? "text-emerald-400/80"
-        : statusTone === "red"
-          ? "text-red-400/80"
-          : "text-amber-400/80";
-    const dot =
-      statusTone === "emerald"
-        ? "bg-emerald-400/70"
-        : statusTone === "red"
-          ? "bg-red-400/70"
-          : "animate-pulse bg-amber-400/70";
+    // "Connected" is the steady state. A permanent green "Connected" label just
+    // adds noise, so it (and its dot) is hidden. Only transitional or problem
+    // states — connecting / waiting / disconnected — are surfaced.
+    if (statusTone === "emerald") return null;
+    const tone = statusTone === "red" ? "text-red-400/80" : "text-amber-400/80";
+    const dot = statusTone === "red" ? "bg-red-400/70" : "animate-pulse bg-amber-400/70";
     return (
       <span className={`flex shrink-0 items-center gap-1.5 text-[12px] font-medium md:text-[11px] ${tone}`}>
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
@@ -777,11 +885,21 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
                     admin: isAdmin,
                     joinedAt: new Date().toISOString(),
                   } as Participant);
-                // Spotlight is always YOU on your own screen
-                const active = self;
-                // Everyone else in the strip: admins first, then by join time
-                const strip = participants
-                  .filter((p) => Number(p.uid) !== uid)
+                // Everyone in the room, making sure you are always represented
+                // even before the server has echoed your presence back.
+                const allPeople = participants.some((p) => Number(p.uid) === uid)
+                  ? participants
+                  : [...participants, self];
+                // Spotlight is YOU by default, or whoever you tapped in the strip.
+                const pinned =
+                  pinnedUid != null
+                    ? allPeople.find((p) => Number(p.uid) === pinnedUid)
+                    : undefined;
+                const active = pinned || self;
+                const activeIsSelf = Number(active.uid) === uid;
+                // Everyone except the spotlighted person: admins first, then by join time.
+                const strip = allPeople
+                  .filter((p) => Number(p.uid) !== Number(active.uid))
                   .sort((a, b) => {
                     if (!!a.admin !== !!b.admin) return a.admin ? -1 : 1;
                     return new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime();
@@ -790,13 +908,47 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
                 const activeName = active.displayName;
                 const activeMe = identityFor(activeName);
                 const activeEmoji = active.avatar || active.displayName.charAt(0).toUpperCase();
-                const selfStatus = activeSpeaking ? "Speaking" : micActive ? "Mic on" : "Muted";
+                const activeState = voiceStateFor(active);
+                const activeMeta = VOICE_META[activeState];
+                const ActiveStateIcon = activeMeta.Icon;
+                // Speaking wins visually (bright emerald, plus the pulse ring),
+                // otherwise the ring carries the muted / idle / offline colour.
+                const activeRing = activeSpeaking
+                  ? "ring-emerald-400/70"
+                  : activeMeta.ring;
+                const pillInner = (
+                  <>
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full transition-colors duration-300 ${activeMeta.dot} ${
+                        activeState === "live" ? "animate-pulse" : ""
+                      }`}
+                    />
+                    <ActiveStateIcon size={12} strokeWidth={2.6} />
+                    <span>{activeMeta.label}</span>
+                  </>
+                );
                 return (
                   <>
-                    {/* Spotlight — always YOU on your own screen */}
+                    {/* Spotlight — you by default, or the person you tapped */}
                     <div
-                      key="self-spotlight"
-                      className={`relative w-full max-w-[23.5rem] animate-scale-in overflow-hidden rounded-[28px] transition-all duration-500 sm:max-w-[26rem] sm:rounded-[32px] md:aspect-[4/5] md:max-h-[62vh] ${
+                      key={`${active.socketId}-spotlight`}
+                      onClick={activeIsSelf ? undefined : () => setPinnedUid(null)}
+                      role={activeIsSelf ? undefined : "button"}
+                      tabIndex={activeIsSelf ? undefined : 0}
+                      aria-label={activeIsSelf ? undefined : "Show yourself again"}
+                      onKeyDown={
+                        activeIsSelf
+                          ? undefined
+                          : (e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                setPinnedUid(null);
+                              }
+                            }
+                      }
+                      className={`relative w-full max-w-[23.5rem] animate-scale-in overflow-hidden rounded-[28px] transition-all duration-500 sm:max-w-[26rem] sm:rounded-[32px] md:aspect-[4/5] md:max-h-[62vh] focus:outline-none ${
+                        activeIsSelf ? "" : "cursor-pointer active:scale-[0.99] focus-visible:ring-2 focus-visible:ring-emerald-400/40"
+                      } ${
                         activeSpeaking
                           ? "ring-1 ring-emerald-400/25 shadow-[0_20px_60px_-24px_rgba(0,0,0,0.95)]"
                           : "ring-1 ring-white/[0.06] shadow-[0_16px_48px_-24px_rgba(0,0,0,0.9)]"
@@ -815,6 +967,54 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
                           background: "radial-gradient(70% 45% at 50% 42%, rgba(52,211,153,0.10), transparent 70%)",
                         }}
                       />
+
+                      {/* Top animation bar — a soft sweeping glow so the card's
+                          state is readable before you even look at the text. */}
+                      <span
+                        aria-hidden
+                        className={`pointer-events-none absolute inset-x-0 top-0 z-20 h-[3px] transition-opacity duration-500 ${
+                          activeState === "offline" ? "opacity-40" : "opacity-100"
+                        } ${activeState === "live" ? "animate-pulse" : ""}`}
+                        style={{
+                          background:
+                            activeState === "live"
+                              ? "linear-gradient(90deg, transparent, rgba(52,211,153,0.9), transparent)"
+                              : activeState === "muted"
+                                ? "linear-gradient(90deg, transparent, rgba(161,161,170,0.65), transparent)"
+                                : "linear-gradient(90deg, transparent, rgba(251,191,36,0.75), transparent)",
+                        }}
+                      />
+
+                      {/* Status pill — the single source of truth for mic and
+                          connection state. On your own card it is an interactive
+                          toggle back to unmuted; on anyone else's it is a label. */}
+                      <div
+                        className={`absolute inset-x-0 top-0 z-20 flex justify-center px-3 pt-3 ${
+                          activeIsSelf ? "" : "pointer-events-none"
+                        }`}
+                      >
+                        {activeIsSelf ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleMic();
+                            }}
+                            disabled={!audioTrackRef.current || joining}
+                            aria-label={micEnabled ? "Mute microphone" : "Unmute microphone"}
+                            title={micEnabled ? "Tap to mute" : "Tap to unmute"}
+                            className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide ring-1 backdrop-blur-md transition-all duration-200 cursor-pointer hover:scale-[1.05] hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50 ${activeMeta.pill}`}
+                          >
+                            {pillInner}
+                          </button>
+                        ) : (
+                          <span
+                            className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide ring-1 backdrop-blur-md transition-all duration-300 ${activeMeta.pill}`}
+                          >
+                            {pillInner}
+                          </span>
+                        )}
+                      </div>
 
                       <div className="relative flex h-full min-h-[15rem] w-full flex-col items-center justify-center md:aspect-[4/5] md:min-h-0">
                         {/* Emoji medallion — avatar with the waveform passing through its centre */}
@@ -840,10 +1040,14 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
 
                           <div className="relative flex items-center justify-center">
                             <div
-                              className="flex h-[4.5rem] w-[4.5rem] items-center justify-center rounded-full text-[2.75rem] shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] ring-2 ring-emerald-400/30 sm:h-28 sm:w-28 sm:text-5xl"
+                              className={`flex h-[4.5rem] w-[4.5rem] items-center justify-center overflow-hidden rounded-full text-[2.75rem] shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] ring-2 transition-all duration-300 sm:h-28 sm:w-28 sm:text-5xl ${activeRing} ${
+                                activeState === "offline" && !activeSpeaking
+                                  ? "opacity-70 saturate-50"
+                                  : ""
+                              }`}
                               style={{ background: `linear-gradient(145deg, ${activeMe.from}, ${activeMe.to})` }}
                             >
-                              {activeEmoji}
+                              <Avatar value={activeEmoji} />
                             </div>
                             {activeSpeaking && (
                               <span className="absolute -inset-2 rounded-full ring-2 ring-emerald-400/40 animate-pulse" />
@@ -853,15 +1057,16 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
 
                         {/* Name lockup */}
                         <div className="absolute inset-x-0 bottom-0 px-4 pb-4 pt-10 bg-gradient-to-t from-black/70 to-transparent md:px-5 md:pb-5">
-                          {/* Grid rather than flex: the badge is pinned to row 1 and
-                              centred within that row, so its centre lines up with the
-                              NAME's line box specifically. A flex `items-center` would
-                              centre it against the name+status block and sit it ~9px low. */}
+                          {/* Two columns: the name truncates in the flexible one,
+                              while identity/role markers sit in the auto column so
+                              they are never clipped. */}
                           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
-                            <p className="col-start-1 row-start-1 truncate text-[19px] font-bold leading-tight tracking-tight text-white md:text-[17px]">
-                              {activeName}
-                              <span className="ml-1.5 text-[12px] font-semibold text-white/35 md:text-[11px]">You</span>
-                            </p>
+                            <div className="col-start-1 row-start-1 flex min-w-0 items-baseline gap-1">
+                              <p className="min-w-0 truncate text-[19px] font-bold leading-tight tracking-tight text-white md:text-[17px]">
+                                {activeName}
+                              </p>
+                              {activeIsSelf && <span className="you-label">(you)</span>}
+                            </div>
                             {active.admin && (
                               /* flex, not a bare div: a block cell inherits the body
                                  line-height, which builds a 24px line box and baseline-
@@ -870,41 +1075,45 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
                                 <AdminBadge size={18} withLabel />
                               </div>
                             )}
-                            <p className="col-start-1 row-start-2 mt-0.5 flex items-center gap-1.5 text-[12px] font-medium text-white/50 md:text-[11px]">
-                              <span
-                                className="h-1.5 w-1.5 rounded-full transition-colors duration-300"
-                                style={{
-                                  background: activeSpeaking ? "#34d399" : micActive ? "#3f3f46" : "#52525b",
-                                }}
-                              />
-                              {selfStatus}
-                            </p>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    {/* Everyone else */}
+                    {/* Everyone else — tap a card to bring it to the spotlight */}
                     {strip.length > 0 && (
                       <div className="w-full max-w-md px-1 sm:max-w-lg">
-                        <p className="mb-2.5 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-600">
-                          In this room · {strip.length}
+                        <p className="mb-2.5 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
+                          In this room · {allPeople.length}
                         </p>
                         <div className="flex flex-wrap items-start justify-center gap-x-3.5 gap-y-3 md:gap-x-4">
                           {strip.map((p) => {
                             const isSpeaking = !!speakingMap[String(p.uid)];
                             const me = identityFor(p.displayName);
+                            const isSelfCard = Number(p.uid) === uid;
+                            const state = voiceStateFor(p);
+                            const meta = VOICE_META[state];
+                            const StateIcon = meta.Icon;
                             return (
-                              <div
+                              <button
+                                type="button"
                                 key={p.socketId}
-                                className="flex w-[3.5rem] shrink-0 flex-col items-center gap-1.5 animate-scale-in md:w-14"
+                                onClick={() => setPinnedUid(isSelfCard ? null : Number(p.uid))}
+                                aria-label={
+                                  isSelfCard
+                                    ? "Show yourself in the spotlight"
+                                    : `Show ${p.displayName} in the spotlight`
+                                }
+                                className="flex w-[3.5rem] shrink-0 flex-col items-center gap-1.5 animate-scale-in cursor-pointer rounded-xl py-1 transition active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40 md:w-14"
                               >
                                 <div className="relative">
                                   <div
-                                    className="relative flex h-12 w-12 items-center justify-center rounded-full text-[17px] font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] ring-2 ring-emerald-400/30 transition-all duration-300 md:h-11 md:w-11 md:text-base"
+                                    className={`relative flex h-12 w-12 items-center justify-center overflow-hidden rounded-full text-[17px] font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.22)] ring-2 transition-all duration-300 md:h-11 md:w-11 md:text-base ${meta.ring} ${
+                                      state === "offline" ? "opacity-60 saturate-50" : ""
+                                    }`}
                                     style={{ background: me.solid }}
                                   >
-                                    {p.avatar || p.displayName.charAt(0).toUpperCase()}
+                                    <Avatar value={p.avatar || p.displayName.charAt(0).toUpperCase()} />
                                   </div>
                                   {isSpeaking && (
                                     <span className="absolute -inset-1 rounded-full ring-2 ring-emerald-400/60 animate-pulse" />
@@ -916,11 +1125,34 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
                                       className="absolute left-1/2 top-full -translate-x-1/2 -translate-y-[60%]"
                                     />
                                   )}
+                                  {isSelfCard && (
+                                    <span className="absolute -left-1 -top-1 flex h-4 items-center rounded-full bg-blue-500 px-1.5 text-[9px] font-bold uppercase tracking-wide text-white ring-2 ring-[#070709]">
+                                      You
+                                    </span>
+                                  )}
+                                  {/* Mic / connection chip — bottom-right corner so the
+                                      circular ring never hides it. */}
+                                  <span
+                                    title={`${p.displayName}: ${meta.label}`}
+                                    aria-label={`${p.displayName}: ${meta.label}`}
+                                    className={`absolute -bottom-1 -right-1 z-10 flex h-[18px] w-[18px] items-center justify-center rounded-full ring-[2.5px] ring-[#070709] ${meta.chip}`}
+                                  >
+                                    <StateIcon size={10} strokeWidth={2.8} />
+                                  </span>
                                 </div>
-                                <span className="w-full truncate text-center text-[11px] font-medium text-zinc-400">
+                                <span className="w-full truncate text-center text-[11px] font-medium text-zinc-300">
                                   {p.displayName}
                                 </span>
-                              </div>
+                                {state !== "live" && (
+                                  <span
+                                    className={`-mt-1 text-[9px] font-bold uppercase tracking-wide ${
+                                      state === "muted" ? "text-zinc-400" : "text-amber-300"
+                                    }`}
+                                  >
+                                    {state === "muted" ? "Muted" : "Offline"}
+                                  </span>
+                                )}
+                              </button>
                             );
                           })}
                         </div>
@@ -1125,14 +1357,14 @@ export default function CallRoom({ group, displayName, avatar, socket, config, p
                           <div className="w-7 shrink-0 self-end">
                             {!isSelf && endGroup && (
                               <div
-                                className="flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] ring-1 ring-inset ring-white/10"
+                                className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full text-[10px] font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] ring-1 ring-inset ring-white/10"
                                 style={{
                                   background: isSenderAdmin
                                     ? "linear-gradient(145deg, #4a4539, #544e41)"
                                     : senderMe.solid,
                                 }}
                               >
-                                {sender?.avatar || msg.displayName.charAt(0).toUpperCase()}
+                                <Avatar value={sender?.avatar || msg.displayName.charAt(0).toUpperCase()} />
                               </div>
                             )}
                           </div>

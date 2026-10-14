@@ -37,6 +37,30 @@ export function setAdminToken(token: string): void {
   }
 }
 
+/**
+ * Stable per-browser identity, shared by every tab/window of the same
+ * browser via localStorage. The server uses it to keep a single active
+ * presence per person in a room, so opening the same room link in a second
+ * tab takes over the session instead of registering a second user.
+ */
+const CLIENT_ID_KEY = "myspeak:client-id";
+
+export function getClientId(): string {
+  try {
+    let id = localStorage.getItem(CLIENT_ID_KEY);
+    if (!id) {
+      id =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      localStorage.setItem(CLIENT_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    return "";
+  }
+}
+
 const ROOM_ACCESS_TTL = 5 * 60 * 1000;
 
 export function grantRoomAccess(groupId: string, passcode = ""): void {
